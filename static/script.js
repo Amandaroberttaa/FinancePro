@@ -17,58 +17,36 @@ function escaparHtml(valor) {
 }
 
 async function apiGet(url) {
-  const resp = await fetch(url, {
-    credentials: "same-origin"
-  });
+  const resp = await fetch(url, { credentials: "same-origin" });
   return await resp.json();
 }
 
 async function apiPost(url, dados = {}) {
   const resp = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
     body: JSON.stringify(dados)
   });
 
   const contentType = resp.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    return await resp.json();
-  }
+  if (contentType.includes("application/json")) return await resp.json();
   return resp;
 }
 
 async function apiPut(url, dados = {}) {
   const resp = await fetch(url, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
     body: JSON.stringify(dados)
   });
   return await resp.json();
 }
 
-async function apiPostForm(url, formData) {
-  const resp = await fetch(url, {
-    method: "POST",
-    credentials: "same-origin",
-    body: formData
-  });
-  return await resp.json();
-}
-
-function trocarTela(nomeTela) {
-  document.querySelectorAll(".screen").forEach(screen => {
-    screen.classList.remove("active");
-  });
-
-  document.querySelectorAll(".nav-item").forEach(btn => {
-    btn.classList.remove("active");
-  });
+async function trocarTela(nomeTela) {
+  document.querySelectorAll(".screen").forEach(screen => screen.classList.remove("active"));
+  document.querySelectorAll(".nav-item").forEach(btn => btn.classList.remove("active"));
 
   const tela = document.getElementById(`screen-${nomeTela}`);
   const botao = document.querySelector(`[data-screen="${nomeTela}"]`);
@@ -76,9 +54,14 @@ function trocarTela(nomeTela) {
   if (tela) tela.classList.add("active");
   if (botao && botao.style.display !== "none") botao.classList.add("active");
 
-  if (nomeTela === "admin") {
-    carregarLogsAdmin();
+  if (nomeTela === "dashboard") await carregarDashboard();
+  if (nomeTela === "clientes") await carregarClientes();
+  if (nomeTela === "emprestimos") {
+    await carregarClientes();
+    await carregarEmprestimos();
   }
+  if (nomeTela === "relatorios") await carregarRelatorios();
+  if (nomeTela === "admin") await carregarLogsAdmin();
 }
 
 function classeStatus(status) {
@@ -95,21 +78,10 @@ function atualizarInfoSessao(usuario, isAdmin) {
   const userSessionName = document.getElementById("userSessionName");
   const adminScreen = document.getElementById("screen-admin");
 
-  if (adminNav) {
-    adminNav.style.display = isAdmin ? "block" : "none";
-  }
-
-  if (adminBadge) {
-    adminBadge.style.display = isAdmin ? "flex" : "none";
-  }
-
-  if (userSessionCard) {
-    userSessionCard.style.display = usuario ? "flex" : "none";
-  }
-
-  if (userSessionName) {
-    userSessionName.textContent = usuario || "-";
-  }
+  if (adminNav) adminNav.style.display = isAdmin ? "block" : "none";
+  if (adminBadge) adminBadge.style.display = isAdmin ? "flex" : "none";
+  if (userSessionCard) userSessionCard.style.display = usuario ? "flex" : "none";
+  if (userSessionName) userSessionName.textContent = usuario || "-";
 
   if (!isAdmin && adminScreen && adminScreen.classList.contains("active")) {
     trocarTela("dashboard");
@@ -136,7 +108,7 @@ async function verificarLoginInicial() {
     if (appLayout) appLayout.style.display = "flex";
 
     atualizarInfoSessao(sessao.usuario || "", !!sessao.is_admin);
-    await atualizarTudo();
+    await carregarDashboard();
     return;
   }
 
@@ -193,8 +165,7 @@ async function fazerLogin() {
   document.getElementById("formLogin")?.reset();
 
   atualizarInfoSessao(resposta.usuario || "", !!resposta.is_admin);
-
-  await atualizarTudo();
+  await carregarDashboard();
 }
 
 async function sairSistema() {
@@ -208,17 +179,11 @@ async function sairSistema() {
 async function carregarResumo() {
   const dados = await apiGet("/api/resumo");
 
-  const totalEmprestado = document.getElementById("totalEmprestado");
-  const totalAberto = document.getElementById("totalAberto");
-  const lucroTotal = document.getElementById("lucroTotal");
-  const clientesEmAtraso = document.getElementById("clientesEmAtraso");
-  const totalClientes = document.getElementById("totalClientes");
-
-  if (totalEmprestado) totalEmprestado.innerText = formatarMoeda(dados.total_emprestado);
-  if (totalAberto) totalAberto.innerText = formatarMoeda(dados.total_em_aberto);
-  if (lucroTotal) lucroTotal.innerText = formatarMoeda(dados.lucro_total);
-  if (clientesEmAtraso) clientesEmAtraso.innerText = dados.clientes_em_atraso;
-  if (totalClientes) totalClientes.innerText = dados.total_clientes || 0;
+  if (document.getElementById("totalEmprestado")) document.getElementById("totalEmprestado").innerText = formatarMoeda(dados.total_emprestado);
+  if (document.getElementById("totalAberto")) document.getElementById("totalAberto").innerText = formatarMoeda(dados.total_em_aberto);
+  if (document.getElementById("lucroTotal")) document.getElementById("lucroTotal").innerText = formatarMoeda(dados.lucro_total);
+  if (document.getElementById("clientesEmAtraso")) document.getElementById("clientesEmAtraso").innerText = dados.clientes_em_atraso;
+  if (document.getElementById("totalClientes")) document.getElementById("totalClientes").innerText = dados.total_clientes || 0;
 }
 
 async function carregarGraficoStatus() {
@@ -249,6 +214,11 @@ async function carregarGraficoStatus() {
   });
 }
 
+async function carregarDashboard() {
+  await carregarResumo();
+  await carregarGraficoStatus();
+}
+
 async function carregarClientes() {
   const clientes = await apiGet("/api/clientes");
   const lista = document.getElementById("listaClientes");
@@ -269,12 +239,12 @@ async function carregarClientes() {
       item.className = "client-item";
       item.innerHTML = `
         <div class="client-info">
-          <strong>${cliente.id} - ${cliente.nome}</strong>
-          <span>Telefone: ${cliente.telefone || "Sem telefone"}</span>
-          <span>CPF: ${cliente.cpf || "Não informado"}</span>
-          <span>Endereço: ${cliente.endereco || "Não informado"}</span>
-          <span>Contratação: ${cliente.data_contratacao || "-"}</span>
-          <span>Status: ${cliente.status || "Aberto"}</span>
+          <strong>${cliente.id} - ${escaparHtml(cliente.nome)}</strong>
+          <span>Telefone: ${escaparHtml(cliente.telefone || "Sem telefone")}</span>
+          <span>CPF: ${escaparHtml(cliente.cpf || "Não informado")}</span>
+          <span>Endereço: ${escaparHtml(cliente.endereco || "Não informado")}</span>
+          <span>Contratação: ${escaparHtml(cliente.data_contratacao || "-")}</span>
+          <span>Status: ${escaparHtml(cliente.status || "Aberto")}</span>
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
           <button class="action-btn secondary" onclick="abrirEdicaoCliente(${cliente.id})">Editar</button>
@@ -300,9 +270,7 @@ async function adicionarCliente() {
   const endereco = document.getElementById("novoEndereco")?.value || "";
   const data_contratacao = document.getElementById("novaDataContratacao")?.value || "";
 
-  const resposta = await apiPost("/api/clientes", {
-    nome, telefone, cpf, endereco, data_contratacao
-  });
+  const resposta = await apiPost("/api/clientes", { nome, telefone, cpf, endereco, data_contratacao });
 
   if (!resposta.ok) {
     alert(resposta.mensagem);
@@ -315,7 +283,8 @@ async function adicionarCliente() {
   document.getElementById("novoEndereco").value = "";
   document.getElementById("novaDataContratacao").value = "";
 
-  await atualizarTudo();
+  await carregarClientes();
+  await carregarDashboard();
 }
 
 async function abrirEdicaoCliente(clienteId) {
@@ -359,6 +328,7 @@ async function salvarEdicaoCliente() {
   alert(resposta.mensagem);
   document.getElementById("painelEditarCliente").style.display = "none";
   await carregarClientes();
+  await carregarDashboard();
 }
 
 function baixarPdfCliente(clienteId) {
@@ -381,7 +351,7 @@ async function carregarEmprestimos() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${item.id}</td>
-      <td>${item.cliente}</td>
+      <td>${escaparHtml(item.cliente)}</td>
       <td>${formatarMoeda(item.valor)}</td>
       <td>${item.taxa}%</td>
       <td>${formatarMoeda(item.juros)}</td>
@@ -407,9 +377,7 @@ async function adicionarEmprestimo() {
   const data_inicio = document.getElementById("emprestimoData")?.value || "";
   const taxa = document.getElementById("emprestimoTaxa")?.value || "30";
 
-  const resposta = await apiPost("/api/emprestimos", {
-    cliente_id, valor, data_inicio, taxa
-  });
+  const resposta = await apiPost("/api/emprestimos", { cliente_id, valor, data_inicio, taxa });
 
   if (!resposta.ok) {
     alert(resposta.mensagem);
@@ -421,7 +389,9 @@ async function adicionarEmprestimo() {
   document.getElementById("emprestimoData").value = "";
   document.getElementById("emprestimoTaxa").value = "30";
 
-  await atualizarTudo();
+  await carregarEmprestimos();
+  await carregarDashboard();
+  await carregarRelatorios();
 }
 
 async function confirmarQuitado(id) {
@@ -436,7 +406,10 @@ async function confirmarQuitado(id) {
   }
 
   alert(resposta.mensagem);
-  await atualizarTudo();
+
+  await carregarEmprestimos();
+  await carregarDashboard();
+  await carregarRelatorios();
 }
 
 async function confirmarJuros(id) {
@@ -451,7 +424,10 @@ async function confirmarJuros(id) {
   }
 
   alert(resposta.mensagem);
-  await atualizarTudo();
+
+  await carregarEmprestimos();
+  await carregarDashboard();
+  await carregarRelatorios();
 }
 
 async function alterarTaxaEmprestimo(id, taxaAtual) {
@@ -460,9 +436,7 @@ async function alterarTaxaEmprestimo(id, taxaAtual) {
   const ok = confirm(`Deseja trocar a taxa para ${novaTaxa}%?`);
   if (!ok) return;
 
-  const resposta = await apiPost(`/api/emprestimos/${id}/trocar-taxa`, {
-    nova_taxa: novaTaxa
-  });
+  const resposta = await apiPost(`/api/emprestimos/${id}/trocar-taxa`, { nova_taxa: novaTaxa });
 
   if (!resposta.ok) {
     alert(resposta.mensagem);
@@ -470,7 +444,10 @@ async function alterarTaxaEmprestimo(id, taxaAtual) {
   }
 
   alert(resposta.mensagem);
-  await atualizarTudo();
+
+  await carregarEmprestimos();
+  await carregarDashboard();
+  await carregarRelatorios();
 }
 
 async function carregarRelatorios() {
@@ -587,19 +564,6 @@ async function carregarTabelasAdmin() {
 
     lista.innerHTML = "<option value=''>Selecione uma tabela</option>";
 
-    if (!resposta.tabelas || resposta.tabelas.length === 0) {
-      lista.innerHTML = "<option value=''>Nenhuma tabela encontrada</option>";
-      if (mensagem) {
-        mensagem.innerHTML = `
-          <div class="admin-alert error">
-            Nenhuma tabela encontrada.<br>
-            Banco usado: ${escaparHtml(resposta.banco || "-")}
-          </div>
-        `;
-      }
-      return;
-    }
-
     resposta.tabelas.forEach(tabela => {
       const option = document.createElement("option");
       option.value = tabela;
@@ -608,12 +572,7 @@ async function carregarTabelasAdmin() {
     });
 
     if (mensagem) {
-      mensagem.innerHTML = `
-        <div class="admin-alert success">
-          Tabelas carregadas com sucesso.<br>
-          Banco usado: ${escaparHtml(resposta.banco || "-")}
-        </div>
-      `;
+      mensagem.innerHTML = `<div class="admin-alert success">Tabelas carregadas com sucesso.<br>Banco usado: ${escaparHtml(resposta.banco || "-")}</div>`;
     }
   } catch (erro) {
     lista.innerHTML = "<option value=''>Erro na requisição</option>";
@@ -641,21 +600,8 @@ async function executarSqlAdmin() {
     return;
   }
 
-  const sqlLower = sql.trim().toLowerCase();
-  const ehComandoPerigoso =
-    sqlLower.startsWith("update") ||
-    sqlLower.startsWith("delete") ||
-    sqlLower.startsWith("insert") ||
-    sqlLower.startsWith("alter") ||
-    sqlLower.startsWith("create") ||
-    sqlLower.startsWith("drop");
-
-  if (ehComandoPerigoso) {
-    const confirmar = confirm(
-      "Esse comando altera dados. O sistema fará backup automático antes da execução. Deseja continuar?"
-    );
-    if (!confirmar) return;
-  }
+  const confirmar = confirm("Deseja executar este SQL?");
+  if (!confirmar) return;
 
   if (mensagem) mensagem.innerHTML = "Executando...";
   if (resultado) resultado.innerHTML = "";
@@ -663,35 +609,22 @@ async function executarSqlAdmin() {
   const resposta = await apiPost("/api/admin/sql", { sql });
 
   if (!resposta.ok) {
-    if (mensagem) {
-      mensagem.innerHTML = `<div class="admin-alert error">${escaparHtml(resposta.mensagem)}</div>`;
-    }
+    if (mensagem) mensagem.innerHTML = `<div class="admin-alert error">${escaparHtml(resposta.mensagem)}</div>`;
     return;
   }
 
   if (mensagem) {
-    let texto = escaparHtml(resposta.mensagem || "Executado com sucesso.");
-
-    if (resposta.backup) {
-      texto += `<br><small>Backup criado: ${escaparHtml(resposta.backup)}</small>`;
-    }
-
-    mensagem.innerHTML = `<div class="admin-alert success">${texto}</div>`;
+    mensagem.innerHTML = `<div class="admin-alert success">${escaparHtml(resposta.mensagem || "Executado com sucesso.")}</div>`;
   }
 
   if (resposta.tipo === "consulta") {
     renderizarResultadoAdmin(resposta.colunas || [], resposta.linhas || []);
   } else {
     if (resultado) {
-      resultado.innerHTML = `
-        <div class="admin-box-info">
-          <strong>Comando executado.</strong><br>
-          Linhas afetadas: ${Number(resposta.linhas_afetadas ?? 0)}
-        </div>
-      `;
+      resultado.innerHTML = `<div class="admin-box-info"><strong>Comando executado.</strong><br>Linhas afetadas: ${Number(resposta.linhas_afetadas ?? 0)}</div>`;
     }
 
-    await atualizarTudo();
+    await carregarDashboard();
     await carregarLogsAdmin();
   }
 }
@@ -700,16 +633,9 @@ function renderizarResultadoAdmin(colunas, linhas) {
   const resultado = document.getElementById("adminResultado");
   if (!resultado) return;
 
-  if (!colunas.length) {
-    resultado.innerHTML = `<div class="admin-box-info">Consulta executada sem colunas para exibir.</div>`;
-    return;
-  }
-
   let html = `<div class="table-wrap"><table><thead><tr>`;
 
-  colunas.forEach(coluna => {
-    html += `<th>${escaparHtml(coluna)}</th>`;
-  });
+  colunas.forEach(coluna => html += `<th>${escaparHtml(coluna)}</th>`);
 
   html += `</tr></thead><tbody>`;
 
@@ -718,9 +644,7 @@ function renderizarResultadoAdmin(colunas, linhas) {
   } else {
     linhas.forEach(linha => {
       html += `<tr>`;
-      linha.forEach(valor => {
-        html += `<td>${escaparHtml(valor)}</td>`;
-      });
+      linha.forEach(valor => html += `<td>${escaparHtml(valor)}</td>`);
       html += `</tr>`;
     });
   }
@@ -733,17 +657,11 @@ function preencherExemploAdmin(tipo) {
   const sql = document.getElementById("adminSql");
   if (!sql) return;
 
-  if (tipo === "clientes") {
-    sql.value = "SELECT * FROM clientes ORDER BY id DESC LIMIT 50;";
-  } else if (tipo === "emprestimos") {
-    sql.value = "SELECT * FROM emprestimos ORDER BY id DESC LIMIT 50;";
-  } else if (tipo === "pagamentos") {
-    sql.value = "SELECT * FROM pagamentos ORDER BY id DESC LIMIT 50;";
-  } else if (tipo === "corrigir_status") {
-    sql.value = "UPDATE emprestimos SET status = 'Quitado' WHERE id = 1;";
-  } else if (tipo === "corrigir_nome") {
-    sql.value = "UPDATE clientes SET nome = 'Nome Corrigido' WHERE id = 1;";
-  }
+  if (tipo === "clientes") sql.value = "SELECT * FROM clientes ORDER BY id DESC LIMIT 50;";
+  if (tipo === "emprestimos") sql.value = "SELECT * FROM emprestimos ORDER BY id DESC LIMIT 50;";
+  if (tipo === "pagamentos") sql.value = "SELECT * FROM pagamentos ORDER BY id DESC LIMIT 50;";
+  if (tipo === "corrigir_status") sql.value = "UPDATE emprestimos SET status = 'Quitado' WHERE id = 1;";
+  if (tipo === "corrigir_nome") sql.value = "UPDATE clientes SET nome = 'Nome Corrigido' WHERE id = 1;";
 }
 
 async function carregarLogsAdmin() {
@@ -764,52 +682,28 @@ async function carregarLogsAdmin() {
     return;
   }
 
-  let html = `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Usuário</th>
-            <th>Ação</th>
-            <th>SQL</th>
-            <th>Detalhes</th>
-            <th>Data/Hora</th>
-            <th>IP</th>
-          </tr>
-        </thead>
-        <tbody>
-  `;
+  let html = `<div class="table-wrap"><table><thead><tr>
+    <th>ID</th><th>Usuário</th><th>Ação</th><th>SQL</th><th>Detalhes</th><th>Data/Hora</th><th>IP</th>
+  </tr></thead><tbody>`;
 
   resposta.logs.forEach(item => {
-    html += `
-      <tr>
-        <td>${escaparHtml(item.id)}</td>
-        <td>${escaparHtml(item.usuario)}</td>
-        <td>${escaparHtml(item.acao)}</td>
-        <td>${escaparHtml(item.sql_texto)}</td>
-        <td>${escaparHtml(item.detalhes)}</td>
-        <td>${escaparHtml(item.data_hora)}</td>
-        <td>${escaparHtml(item.ip)}</td>
-      </tr>
-    `;
+    html += `<tr>
+      <td>${escaparHtml(item.id)}</td>
+      <td>${escaparHtml(item.usuario)}</td>
+      <td>${escaparHtml(item.acao)}</td>
+      <td>${escaparHtml(item.sql_texto)}</td>
+      <td>${escaparHtml(item.detalhes)}</td>
+      <td>${escaparHtml(item.data_hora)}</td>
+      <td>${escaparHtml(item.ip)}</td>
+    </tr>`;
   });
 
-  html += `
-        </tbody>
-      </table>
-    </div>
-  `;
-
+  html += `</tbody></table></div>`;
   area.innerHTML = html;
 }
 
 async function atualizarTudo() {
-  await carregarResumo();
-  await carregarGraficoStatus();
-  await carregarClientes();
-  await carregarEmprestimos();
-  await carregarRelatorios();
+  await carregarDashboard();
 }
 
 async function iniciarSistema() {
@@ -843,32 +737,4 @@ function voltarInicio() {
 
 function fazerBackupBanco() {
   window.open("/api/backup-banco", "_blank");
-}
-
-async function restaurarBanco() {
-  const input = document.getElementById("arquivoRestauracao");
-
-  if (!input || !input.files || !input.files.length) {
-    alert("Selecione um arquivo de backup .db.");
-    return;
-  }
-
-  const arquivo = input.files[0];
-
-  const ok = confirm(
-    "Tem certeza que deseja restaurar este backup? Isso substituirá os dados atuais do sistema."
-  );
-
-  if (!ok) return;
-
-  const formData = new FormData();
-  formData.append("arquivo", arquivo);
-
-  const resposta = await apiPostForm("/api/restaurar-banco", formData);
-
-  alert(resposta.mensagem);
-
-  if (resposta.ok) {
-    input.value = "";
-  }
 }

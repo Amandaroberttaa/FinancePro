@@ -304,7 +304,11 @@ def resumo():
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT COALESCE(SUM(valor), 0) FROM emprestimos")
+    cursor.execute("""
+        SELECT COALESCE(SUM(valor), 0)
+        FROM emprestimos
+        WHERE LOWER(TRIM(status)) = 'aberto'
+    """)
     total_emprestado = cursor.fetchone()[0] or 0
 
     cursor.execute("""
@@ -346,7 +350,6 @@ def resumo():
         "clientes_em_atraso": clientes_em_atraso,
         "total_clientes": total_clientes
     })
-
 
 # ---------------- GRÁFICO ----------------
 
@@ -525,22 +528,42 @@ def lista_emprestimos():
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT emprestimos.id,
-               clientes.nome,
-               clientes.id,
-               emprestimos.valor,
-               emprestimos.taxa,
-               emprestimos.juros,
-               emprestimos.total,
-               emprestimos.data_inicio,
-               emprestimos.data_vencimento,
-               emprestimos.status
-        FROM emprestimos
-        JOIN clientes ON emprestimos.cliente_id = clientes.id
-        ORDER BY emprestimos.id ASC
+        SELECT e.id,
+               c.nome,
+               c.id,
+               e.valor,
+               e.taxa,
+               e.juros,
+               e.total,
+               e.data_inicio,
+               e.data_vencimento,
+               e.status
+        FROM emprestimos e
+        JOIN clientes c ON e.cliente_id = c.id
+        WHERE LOWER(TRIM(e.status)) = 'aberto'
+        ORDER BY e.id ASC
     """)
 
     dados = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify([
+        {
+            "id": item[0],
+            "cliente": item[1],
+            "cliente_id": item[2],
+            "valor": float(item[3] or 0),
+            "taxa": float(item[4] or 0),
+            "juros": float(item[5] or 0),
+            "total": float(item[6] or 0),
+            "data_contratacao": formatar_data_texto(item[7]),
+            "vencimento": formatar_data_texto(item[8]),
+            "status": item[9]
+        }
+        for item in dados
+    ])
 
     cursor.close()
     conn.close()
@@ -615,7 +638,7 @@ def quitar_emprestimo(emprestimo_id):
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT total, status
+        SELECT total, juros, status
         FROM emprestimos
         WHERE id = %s
     """, (emprestimo_id,))
@@ -627,14 +650,14 @@ def quitar_emprestimo(emprestimo_id):
         conn.close()
         return jsonify({"ok": False, "mensagem": "Empréstimo não encontrado."})
 
-    status = (linha[1] or "").strip().lower()
+    total = float(linha[0] or 0)
+    status = (linha[2] or "").strip().lower()
 
     if status == "quitado":
         cursor.close()
         conn.close()
         return jsonify({"ok": False, "mensagem": "Esse empréstimo já está quitado."})
 
-    total = linha[0] or 0
     hoje = datetime.now().strftime("%d/%m/%Y")
 
     cursor.execute("""
@@ -653,7 +676,7 @@ def quitar_emprestimo(emprestimo_id):
     cursor.close()
     conn.close()
 
-    return jsonify({"ok": True, "mensagem": "Pagamento total registrado com sucesso."})
+    return jsonify({"ok": True, "mensagem": "Empréstimo quitado com sucesso."})
 
 
 @app.route("/api/emprestimos/<int:emprestimo_id>/pagar-juros", methods=["POST"])
@@ -793,13 +816,77 @@ def relatorio_resumo():
     """)
     total_atraso = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COALESCE(SUM(valor), 0) FROM emprestimos")
+    cursor.execute("""
+        SELECT COALESCE(SUM(valor), 0)
+        FROM emprestimos
+        WHERE LOWER(TRIM(status)) = 'aberto'
+    """)
     total_emprestado = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COALESCE(SUM(juros), 0) FROM emprestimos WHERE taxa = 20")
+    cursor.execute("""
+        SELECT COALESCE(SUM(total), 0)
+        FROM emprestimos
+        WHERE LOWER(TRIM(status)) = 'aberto'
+    """)
+    total_em_aberto = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(CASE
+            WHEN p.tipo = 'juros' THEN p.valor_pago
+            WHEN p.tipo = 'total' THEN e.juros
+            ELSE 0
+        END), 0)
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+    """)
+    lucro_total = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(CASE
+            WHEN p.tipo = 'juros' THEN p.valor_pago
+            WHEN p.tipo = 'total' THEN e.juros
+            ELSE 0
+        END), 0)
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE TO_DATE(p.data_pagamento, 'DD/MM/YYYY') >= CURRENT_DATE - INTERVAL '7 days'
+    """)
+    lucro_semanal = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(CASE
+            WHEN p.tipo = 'juros' THEN p.valor_pago
+            WHEN p.tipo = 'total' THEN e.juros
+            ELSE 0
+        END), 0)
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE DATE_TRUNC('month', TO_DATE(p.data_pagamento, 'DD/MM/YYYY')) = DATE_TRUNC('month', CURRENT_DATE)
+    """)
+    lucro_mensal = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(CASE
+            WHEN p.tipo = 'juros' THEN p.valor_pago
+            WHEN p.tipo = 'total' THEN e.juros
+            ELSE 0
+        END), 0)
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE e.taxa = 20
+    """)
     lucro_20 = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COALESCE(SUM(juros), 0) FROM emprestimos WHERE taxa = 30")
+    cursor.execute("""
+        SELECT COALESCE(SUM(CASE
+            WHEN p.tipo = 'juros' THEN p.valor_pago
+            WHEN p.tipo = 'total' THEN e.juros
+            ELSE 0
+        END), 0)
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE e.taxa = 30
+    """)
     lucro_30 = cursor.fetchone()[0] or 0
 
     cursor.close()
@@ -810,39 +897,13 @@ def relatorio_resumo():
         "total_pagamentos": total_pagamentos,
         "total_atraso": round(float(total_atraso), 2),
         "total_emprestado": round(float(total_emprestado), 2),
+        "total_em_aberto": round(float(total_em_aberto), 2),
+        "lucro_total": round(float(lucro_total), 2),
         "lucro_20": round(float(lucro_20), 2),
         "lucro_30": round(float(lucro_30), 2),
-        "lucro_semanal": 0,
-        "lucro_mensal": 0
+        "lucro_semanal": round(float(lucro_semanal), 2),
+        "lucro_mensal": round(float(lucro_mensal), 2)
     })
-
-
-@app.route("/api/gerar-pdf", methods=["GET"])
-def gerar_pdf():
-    try:
-        arquivo = gerar_relatorio()
-
-        return send_file(
-            arquivo,
-            as_attachment=True,
-            download_name="relatorio.pdf"
-        )
-    except Exception as e:
-        return jsonify({"ok": False, "mensagem": str(e)})
-
-
-@app.route("/api/gerar-pdf-cliente/<int:cliente_id>", methods=["GET"])
-def gerar_pdf_cliente(cliente_id):
-    try:
-        arquivo = gerar_relatorio_cliente(cliente_id)
-
-        return send_file(
-            arquivo,
-            as_attachment=True,
-            download_name="relatorio_cliente.pdf"
-        )
-    except Exception as e:
-        return jsonify({"ok": False, "mensagem": str(e)})
 
 
 # ---------------- ADMIN SQL ----------------
