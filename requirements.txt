@@ -1,0 +1,5 @@
+Flask
+reportlab
+gunicorn
+psycopg2-binary
+python-dotenv

@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinancePro</title>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <link rel="icon" href="{{ url_for('static', filename='img/logo.png') }}">
+  <meta name="theme-color" content="#00c853">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/icon-192.png') }}">
+</head>
+<body>
+
+  <section id="screen-inicial" class="auth-screen">
+    <div class="auth-card">
+      <h1>FinancePro</h1>
+      <p>Sistema de controle financeiro</p>
+
+      <button type="button" class="primary-btn" onclick="abrirLogin()">Entrar</button>
+      <button type="button" class="secondary-btn" onclick="abrirCriarUsuario()">Criar usuário</button>
+    </div>
+  </section>
+
+  <section id="screen-criar-usuario" class="auth-screen" style="display:none;">
+    <div class="auth-card">
+      <h1>Criar usuário</h1>
+      <p>Primeiro acesso ao sistema</p>
+
+      <form id="formCriarUsuario">
+        <input type="text" id="novoUsuario" placeholder="Usuário" autocomplete="username">
+        <input type="password" id="novaSenha" placeholder="Senha" autocomplete="new-password">
+
+        <button type="submit" class="primary-btn">Criar usuário</button>
+        <button type="button" class="secondary-btn" onclick="voltarInicio()">Voltar</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="screen-login" class="auth-screen" style="display:none;">
+    <div class="auth-card">
+      <h1>Entrar no sistema</h1>
+      <p>Informe seu usuário e senha</p>
+
+      <form id="formLogin">
+        <input type="text" id="loginUsuario" placeholder="Usuário" autocomplete="username">
+        <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password">
+
+        <button type="submit" class="primary-btn">Entrar</button>
+        <button type="button" class="secondary-btn" onclick="voltarInicio()">Voltar</button>
+      </form>
+
+      <div class="auth-security-note">
+        Acesso administrativo possui permissões técnicas avançadas.
+      </div>
+    </div>
+  </section>
+
+  <div class="layout" id="appLayout" style="display:none;">
+
+    <aside class="sidebar">
+      <div>
+        <div class="brand">
+          <img src="{{ url_for('static', filename='img/logo.png') }}" alt="FinancePro" class="brand-logo">
+          <div>
+            <h2>FinancePro</h2>
+            <p>Controle de Empréstimos</p>
+          </div>
+        </div>
+
+        <div id="adminBadge" class="admin-session-badge" style="display:none;">
+          <span class="admin-badge-dot"></span>
+          <strong>Modo Administrador</strong>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" data-screen="dashboard">Dashboard</button>
+          <button class="nav-item" data-screen="clientes">Clientes</button>
+          <button class="nav-item" data-screen="emprestimos">Empréstimos</button>
+          <button class="nav-item" data-screen="relatorios">Relatórios</button>
+          <button class="nav-item admin-nav-item" id="navAdmin" data-screen="admin" style="display:none;">
+            Admin SQL
+          </button>
+        </nav>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="mini-card">
+          <span>Sistema online</span>
+          <strong>Banco conectado</strong>
+        </div>
+
+        <div id="userSessionCard" class="mini-card mini-card-user" style="display:none;">
+          <span>Usuário logado</span>
+          <strong id="userSessionName">-</strong>
+        </div>
+
+        <button type="button" class="primary-btn btn-full" onclick="sairSistema()">
+          Sair
+        </button>
+      </div>
+    </aside>
+
+    <main class="content">
+
+      <section id="screen-dashboard" class="screen active">
+        <header class="topbar">
+          <div>
+            <h1>Painel financeiro</h1>
+            <p>Acompanhe clientes, empréstimos e lucro</p>
+          </div>
+        </header>
+
+        <section class="hero-grid">
+          <div class="hero-card orange">
+            <span>Total emprestado</span>
+            <strong id="totalEmprestado">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card green">
+            <span>Total em aberto</span>
+            <strong id="totalAberto">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card blue">
+            <span>Lucro total</span>
+            <strong id="lucroTotal">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card purple">
+            <span>Clientes em atraso</span>
+            <strong id="clientesEmAtraso">0</strong>
+          </div>
+        </section>
+
+        <section class="chart-card">
+          <h3>Status dos empréstimos</h3>
+          <div class="chart-wrap">
+            <canvas id="graficoStatus"></canvas>
+          </div>
+        </section>
+      </section>
+
+      <section id="screen-clientes" class="screen">
+        <header class="topbar">
+          <div>
+            <h1>Clientes</h1>
+            <p>Cadastre, visualize e edite clientes</p>
+          </div>
+        </header>
+
+        <div class="panel-grid">
+          <div class="panel-card">
+            <h3>Novo cliente</h3>
+            <input type="text" id="novoNome" placeholder="Nome">
+            <input type="text" id="novoTelefone" placeholder="Telefone">
+            <input type="text" id="novoCpf" placeholder="CPF">
+            <input type="text" id="novoEndereco" placeholder="Endereço">
+            <input type="text" id="novaDataContratacao" placeholder="Data contratação (dd/mm/aaaa)">
+            <button type="button" class="primary-btn" onclick="adicionarCliente()">Cadastrar cliente</button>
+          </div>
+
+          <div class="panel-card">
+            <h3>Lista de clientes</h3>
+            <div id="listaClientes"></div>
+          </div>
+        </div>
+
+        <div class="panel-card" id="painelEditarCliente" style="display:none; margin-top:20px;">
+          <h3>Editar cliente</h3>
+          <input type="hidden" id="editarClienteId">
+          <input type="text" id="editarNome" placeholder="Nome">
+          <input type="text" id="editarTelefone" placeholder="Telefone">
+          <input type="text" id="editarCpf" placeholder="CPF">
+          <input type="text" id="editarEndereco" placeholder="Endereço">
+          <input type="text" id="editarDataContratacao" placeholder="Data contratação (dd/mm/aaaa)">
+          <input type="text" id="editarStatus" placeholder="Status">
+          <button type="button" class="primary-btn" onclick="salvarEdicaoCliente()">Salvar edição</button>
+        </div>
+      </section>
+
+      <section id="screen-emprestimos" class="screen">
+        <header class="topbar">
+          <div>
+            <h1>Empréstimos</h1>
+            <p>Crie e gerencie os empréstimos</p>
+          </div>
+        </header>
+
+        <div class="panel-card">
+          <h3>Novo empréstimo</h3>
+          <select id="emprestimoCliente">
+            <option value="">Selecione o cliente</option>
+          </select>
+          <input type="number" id="emprestimoValor" placeholder="Valor">
+          <input type="text" id="emprestimoData" placeholder="Data início (dd/mm/aaaa)">
+          <select id="emprestimoTaxa">
+            <option value="20">20%</option>
+            <option value="30" selected>30%</option>
+          </select>
+          <button type="button" class="primary-btn" onclick="adicionarEmprestimo()">Criar empréstimo</button>
+        </div>
+
+        <div class="panel-card" style="margin-top:20px;">
+          <h3>Lista de empréstimos</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Cliente</th>
+                  <th>Valor</th>
+                  <th>Taxa</th>
+                  <th>Juros</th>
+                  <th>Total</th>
+                  <th>Início</th>
+                  <th>Vencimento</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tabelaEmprestimos">
+                <tr>
+                  <td colspan="10">Nenhum empréstimo cadastrado.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-relatorios" class="screen">
+        <header class="topbar">
+          <div>
+            <h1>Relatórios</h1>
+            <p>Resumo financeiro do sistema</p>
+          </div>
+        </header>
+
+        <section class="hero-grid">
+          <div class="hero-card orange">
+            <span>Total recebido</span>
+            <strong id="totalRecebido">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card green">
+            <span>Total pagamentos</span>
+            <strong id="totalPagamentos">0</strong>
+          </div>
+
+          <div class="hero-card blue">
+            <span>Total em atraso</span>
+            <strong id="totalAtraso">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card purple">
+            <span>Total emprestado</span>
+            <strong id="relTotalEmprestado">R$ 0,00</strong>
+          </div>
+        </section>
+
+        <section class="hero-grid rel-grid">
+          <div class="hero-card">
+            <span>Lucro taxa 20%</span>
+            <strong id="relLucro20">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro taxa 30%</span>
+            <strong id="relLucro30">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro semanal</span>
+            <strong id="relLucroSemanal">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro mensal</span>
+            <strong id="relLucroMensal">R$ 0,00</strong>
+          </div>
+        </section>
+
+        <div class="panel-card" style="margin-top:20px;">
+          <h3>Exportação</h3>
+          <button type="button" class="primary-btn" onclick="gerarPdf()">Gerar PDF</button>
+        </div>
+      </section>
+
+      <section id="screen-admin" class="screen">
+        <header class="topbar">
+          <div>
+            <h1>Painel técnico SQL</h1>
+            <p>Acesso exclusivo do administrador</p>
+          </div>
+        </header>
+
+        <div class="panel-card admin-panel-header">
+          <h3>Console administrativo</h3>
+          <p class="admin-panel-subtitle">
+            Ambiente técnico para consulta, manutenção, backup e auditoria do banco de dados.
+          </p>
+        </div>
+
+        <div class="panel-card">
+          <h3>Tabelas</h3>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <select id="adminListaTabelas">
+              <option value="">Selecione uma tabela</option>
+            </select>
+            <button type="button" class="primary-btn admin-inline-btn" onclick="carregarTabelasAdmin()">Carregar tabelas</button>
+            <button type="button" class="secondary-btn admin-inline-btn" onclick="usarTabelaAdmin()">Usar SELECT</button>
+            <button type="button" class="secondary-btn admin-inline-btn" onclick="fazerBackupBanco()">Baixar backup</button>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <h3>Exemplos rápidos</h3>
+          <div class="admin-example-grid">
+            <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('clientes')">SELECT clientes</button>
+            <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('emprestimos')">SELECT empréstimos</button>
+            <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('pagamentos')">SELECT pagamentos</button>
+            <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('corrigir_status')">UPDATE status</button>
+            <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('corrigir_nome')">UPDATE cliente</button>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <h3>Executar SQL</h3>
+          <textarea id="adminSql" class="admin-sql-box" placeholder="Digite seu SELECT, UPDATE, INSERT ou DELETE aqui..."></textarea>
+
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="button" class="primary-btn admin-inline-btn" onclick="executarSqlAdmin()">Executar SQL</button>
+            <button type="button" class="secondary-btn admin-inline-btn" onclick="document.getElementById('adminSql').value=''">Limpar</button>
+          </div>
+
+          <div id="adminMensagem" style="margin-top:15px;"></div>
+        </div>
+
+        <div class="panel-card">
+          <h3>Resultado</h3>
+          <div id="adminResultado"></div>
+        </div>
+
+        <div class="panel-card">
+          <h3>Logs do administrador</h3>
+          <button type="button" class="primary-btn admin-inline-btn" onclick="carregarLogsAdmin()">Atualizar logs</button>
+          <div id="adminLogsResultado" style="margin-top:15px;"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("{{ url_for('static', filename='service-worker.js') }}")
+          .then(() => console.log("Service Worker registrado"))
+          .catch(err => console.log("Erro no Service Worker:", err));
+      });
+    }
+  </script>
+</body>
+</html>
