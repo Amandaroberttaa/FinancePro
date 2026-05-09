@@ -73,13 +73,10 @@ def exigir_admin():
     if not usuario_e_admin():
         return jsonify({"ok": False, "mensagem": "Acesso restrito ao administrador."}), 403
 
-    if not acesso_local():
-        return jsonify({"ok": False, "mensagem": "Acesso admin permitido apenas localmente."}), 403
-
     return None
 
 
-def lucro_emprestimo_sql():
+def lucro_emprestimos_sql():
     return """
         COALESCE(SUM(CASE
             WHEN p.tipo = 'juros' THEN p.valor_pago
@@ -102,19 +99,6 @@ def criar_tabelas_admin_log():
             detalhes TEXT,
             data_hora TEXT NOT NULL,
             ip TEXT
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS vendas (
-            id BIGSERIAL PRIMARY KEY,
-            produto TEXT NOT NULL,
-            cliente TEXT,
-            valor_venda NUMERIC(12,2) NOT NULL DEFAULT 0,
-            valor_custo NUMERIC(12,2) NOT NULL DEFAULT 0,
-            lucro NUMERIC(12,2) NOT NULL DEFAULT 0,
-            data_venda TEXT NOT NULL,
-            observacao TEXT
         )
     """)
 
@@ -319,7 +303,7 @@ def resumo():
         FROM emprestimos
         WHERE LOWER(TRIM(status)) = 'aberto'
     """)
-    total_emprestado = cursor.fetchone()[0] or 0
+    capital_emprestado_aberto = cursor.fetchone()[0] or 0
 
     cursor.execute("""
         SELECT COALESCE(SUM(total), 0)
@@ -328,21 +312,113 @@ def resumo():
     """)
     total_em_aberto = cursor.fetchone()[0] or 0
 
+    cursor.execute("""
+        SELECT COALESCE(SUM(valor_pago), 0)
+        FROM pagamentos
+    """)
+    total_recebido_emprestimos = cursor.fetchone()[0] or 0
+
     cursor.execute(f"""
-        SELECT {lucro_emprestimo_sql()}
+        SELECT {lucro_emprestimos_sql()}
         FROM pagamentos p
         JOIN emprestimos e ON e.id = p.emprestimo_id
     """)
     lucro_emprestimos = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COALESCE(SUM(lucro), 0) FROM vendas")
+    cursor.execute(f"""
+        SELECT {lucro_emprestimos_sql()}
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE p.data_pagamento ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND TO_DATE(p.data_pagamento, 'DD/MM/YYYY')
+              BETWEEN CURRENT_DATE - INTERVAL '6 days' AND CURRENT_DATE
+    """)
+    lucro_emprestimos_semanal = cursor.fetchone()[0] or 0
+
+    cursor.execute(f"""
+        SELECT {lucro_emprestimos_sql()}
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE p.data_pagamento ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND EXTRACT(MONTH FROM TO_DATE(p.data_pagamento, 'DD/MM/YYYY')) = EXTRACT(MONTH FROM CURRENT_DATE)
+          AND EXTRACT(YEAR FROM TO_DATE(p.data_pagamento, 'DD/MM/YYYY')) = EXTRACT(YEAR FROM CURRENT_DATE)
+    """)
+    lucro_emprestimos_mensal = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(valor_venda), 0)
+        FROM vendas
+    """)
+    total_vendido = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(valor_custo), 0)
+        FROM vendas
+    """)
+    custo_vendas = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(lucro), 0)
+        FROM vendas
+    """)
     lucro_vendas = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COALESCE(SUM(valor_venda), 0) FROM vendas")
+    cursor.execute("""
+        SELECT COALESCE(SUM(lucro), 0)
+        FROM vendas
+        WHERE data_venda ~ '^\\d{2}/\\d{2}/\\d{4}$'
+          AND TO_DATE(data_venda, 'DD/MM/YYYY')
+              BETWEEN CURRENT_DATE - INTERVAL '6 days' AND CURRENT_DATE
+    """)
+    lucro_vendas_semanal = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(lucro), 0)
+        FROM vendas
+        WHERE data_venda ~ '^\\d{2}/\\d{2}/\\d{4}$'
+          AND EXTRACT(MONTH FROM TO_DATE(data_venda, 'DD/MM/YYYY')) = EXTRACT(MONTH FROM CURRENT_DATE)
+          AND EXTRACT(YEAR FROM TO_DATE(data_venda, 'DD/MM/YYYY')) = EXTRACT(YEAR FROM CURRENT_DATE)
+    """)
+    lucro_vendas_mensal = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(valor_venda), 0)
+        FROM vendas
+        WHERE data_venda ~ '^\\d{2}/\\d{2}/\\d{4}$'
+          AND TO_DATE(data_venda, 'DD/MM/YYYY')
+              BETWEEN CURRENT_DATE - INTERVAL '6 days' AND CURRENT_DATE
+    """)
+    total_vendido_semanal = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(valor_venda), 0)
+        FROM vendas
+        WHERE data_venda ~ '^\\d{2}/\\d{2}/\\d{4}$'
+          AND EXTRACT(MONTH FROM TO_DATE(data_venda, 'DD/MM/YYYY')) = EXTRACT(MONTH FROM CURRENT_DATE)
+          AND EXTRACT(YEAR FROM TO_DATE(data_venda, 'DD/MM/YYYY')) = EXTRACT(YEAR FROM CURRENT_DATE)
+    """)
+    total_vendido_mensal = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM pagamentos
+    """)
+    total_pagamentos = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM vendas
+    """)
     total_vendas = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COALESCE(SUM(valor_custo), 0) FROM vendas")
-    custo_vendas = cursor.fetchone()[0] or 0
+    cursor.execute("""
+        SELECT COALESCE(SUM(total), 0)
+        FROM emprestimos
+        WHERE LOWER(TRIM(status)) = 'aberto'
+          AND data_vencimento ~ '^\\d{2}/\\d{2}/\\d{4}$'
+          AND TO_DATE(data_vencimento, 'DD/MM/YYYY') < CURRENT_DATE
+    """)
+    total_atraso = cursor.fetchone()[0] or 0
 
     cursor.execute("""
         SELECT COUNT(DISTINCT cliente_id)
@@ -353,25 +429,69 @@ def resumo():
     """)
     clientes_em_atraso = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COUNT(*) FROM clientes")
-    total_clientes = cursor.fetchone()[0] or 0
+    cursor.execute("""
+        SELECT COALESCE(SUM(CASE
+            WHEN p.tipo = 'juros' THEN p.valor_pago
+            WHEN p.tipo = 'total' THEN e.juros
+            ELSE 0
+        END), 0)
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE e.taxa = 20
+    """)
+    lucro_20 = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(CASE
+            WHEN p.tipo = 'juros' THEN p.valor_pago
+            WHEN p.tipo = 'total' THEN e.juros
+            ELSE 0
+        END), 0)
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE e.taxa = 30
+    """)
+    lucro_30 = cursor.fetchone()[0] or 0
 
     cursor.close()
     conn.close()
 
-    lucro_geral = float(lucro_emprestimos or 0) + float(lucro_vendas or 0)
+    lucro_geral = float(lucro_emprestimos) + float(lucro_vendas)
+    lucro_semanal_geral = float(lucro_emprestimos_semanal) + float(lucro_vendas_semanal)
+    lucro_mensal_geral = float(lucro_emprestimos_mensal) + float(lucro_vendas_mensal)
+    total_recebido_geral = float(total_recebido_emprestimos) + float(total_vendido)
 
     return jsonify({
-        "total_emprestado": round(float(total_emprestado), 2),
-        "total_em_aberto": round(float(total_em_aberto), 2),
-        "lucro_total": round(float(lucro_emprestimos), 2),
-        "lucro_emprestimos": round(float(lucro_emprestimos), 2),
-        "lucro_vendas": round(float(lucro_vendas), 2),
-        "lucro_geral": round(float(lucro_geral), 2),
-        "total_vendas": round(float(total_vendas), 2),
-        "custo_vendas": round(float(custo_vendas), 2),
+        "total_recebido": round(total_recebido_geral, 2),
+        "total_recebido_emprestimos": round(float(total_recebido_emprestimos), 2),
+        "total_pagamentos": total_pagamentos,
+        "total_vendas": total_vendas,
+        "total_atraso": round(float(total_atraso), 2),
         "clientes_em_atraso": clientes_em_atraso,
-        "total_clientes": total_clientes
+
+        "total_emprestado": round(float(capital_emprestado_aberto), 2),
+        "capital_emprestado_aberto": round(float(capital_emprestado_aberto), 2),
+        "total_em_aberto": round(float(total_em_aberto), 2),
+
+        "lucro_total": round(lucro_geral, 2),
+        "lucro_emprestimos": round(float(lucro_emprestimos), 2),
+        "lucro_emprestimos_semanal": round(float(lucro_emprestimos_semanal), 2),
+        "lucro_emprestimos_mensal": round(float(lucro_emprestimos_mensal), 2),
+
+        "total_vendido": round(float(total_vendido), 2),
+        "total_vendido_semanal": round(float(total_vendido_semanal), 2),
+        "total_vendido_mensal": round(float(total_vendido_mensal), 2),
+        "custo_vendas": round(float(custo_vendas), 2),
+        "lucro_vendas": round(float(lucro_vendas), 2),
+        "lucro_vendas_semanal": round(float(lucro_vendas_semanal), 2),
+        "lucro_vendas_mensal": round(float(lucro_vendas_mensal), 2),
+
+        "lucro_geral": round(lucro_geral, 2),
+        "lucro_semanal_geral": round(lucro_semanal_geral, 2),
+        "lucro_mensal_geral": round(lucro_mensal_geral, 2),
+
+        "lucro_20": round(float(lucro_20), 2),
+        "lucro_30": round(float(lucro_30), 2)
     })
 
 
@@ -398,9 +518,6 @@ def dados_grafico_dashboard():
     cursor.execute("SELECT COUNT(*) FROM emprestimos WHERE taxa = 30 AND LOWER(TRIM(status)) = 'aberto'")
     taxa30 = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COUNT(*) FROM vendas")
-    vendas = cursor.fetchone()[0] or 0
-
     cursor.close()
     conn.close()
 
@@ -408,8 +525,7 @@ def dados_grafico_dashboard():
         {"nome": "Quitado", "valor": quitado},
         {"nome": "Atraso", "valor": atraso},
         {"nome": "Empréstimo 20%", "valor": taxa20},
-        {"nome": "Empréstimo 30%", "valor": taxa30},
-        {"nome": "Vendas", "valor": vendas}
+        {"nome": "Empréstimo 30%", "valor": taxa30}
     ])
 
 
@@ -852,10 +968,10 @@ def cadastrar_venda():
         return jsonify({"ok": False, "mensagem": "Valores inválidos."})
 
     if not produto:
-        return jsonify({"ok": False, "mensagem": "Produto é obrigatório."})
+        return jsonify({"ok": False, "mensagem": "Informe o produto vendido."})
 
     if valor_venda <= 0:
-        return jsonify({"ok": False, "mensagem": "Valor de venda deve ser maior que zero."})
+        return jsonify({"ok": False, "mensagem": "Informe o valor da venda."})
 
     if not data_venda:
         data_venda = datetime.now().strftime("%d/%m/%Y")
@@ -883,140 +999,9 @@ def cadastrar_venda():
     return jsonify({"ok": True, "mensagem": "Venda registrada com sucesso."})
 
 
-@app.route("/api/vendas/<int:venda_id>", methods=["DELETE"])
-def excluir_venda(venda_id):
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM vendas WHERE id = %s", (venda_id,))
-    conn.commit()
-
-    cursor.close()
-    conn.close()
-
-    return jsonify({"ok": True, "mensagem": "Venda excluída com sucesso."})
-
-
 @app.route("/api/relatorio-resumo", methods=["GET"])
 def relatorio_resumo():
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT COALESCE(SUM(valor_pago), 0) FROM pagamentos")
-    total_recebido_emprestimos = cursor.fetchone()[0] or 0
-
-    cursor.execute("SELECT COUNT(*) FROM pagamentos")
-    total_pagamentos = cursor.fetchone()[0] or 0
-
-    cursor.execute("""
-        SELECT COALESCE(SUM(total), 0)
-        FROM emprestimos
-        WHERE LOWER(TRIM(status)) = 'aberto'
-          AND data_vencimento ~ '^\\d{2}/\\d{2}/\\d{4}$'
-          AND TO_DATE(data_vencimento, 'DD/MM/YYYY') < CURRENT_DATE
-    """)
-    total_atraso = cursor.fetchone()[0] or 0
-
-    cursor.execute("SELECT COALESCE(SUM(valor), 0) FROM emprestimos WHERE LOWER(TRIM(status)) = 'aberto'")
-    total_emprestado = cursor.fetchone()[0] or 0
-
-    cursor.execute("SELECT COALESCE(SUM(total), 0) FROM emprestimos WHERE LOWER(TRIM(status)) = 'aberto'")
-    total_em_aberto = cursor.fetchone()[0] or 0
-
-    cursor.execute(f"""
-        SELECT {lucro_emprestimo_sql()}
-        FROM pagamentos p
-        JOIN emprestimos e ON e.id = p.emprestimo_id
-    """)
-    lucro_emprestimos = cursor.fetchone()[0] or 0
-
-    cursor.execute(f"""
-        SELECT {lucro_emprestimo_sql()}
-        FROM pagamentos p
-        JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE p.data_pagamento ~ '^\\d{2}/\\d{2}/\\d{4}$'
-          AND TO_DATE(p.data_pagamento, 'DD/MM/YYYY') >= CURRENT_DATE - INTERVAL '7 days'
-    """)
-    lucro_emprestimos_semanal = cursor.fetchone()[0] or 0
-
-    cursor.execute(f"""
-        SELECT {lucro_emprestimo_sql()}
-        FROM pagamentos p
-        JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE p.data_pagamento ~ '^\\d{2}/\\d{2}/\\d{4}$'
-          AND DATE_TRUNC('month', TO_DATE(p.data_pagamento, 'DD/MM/YYYY')) = DATE_TRUNC('month', CURRENT_DATE)
-    """)
-    lucro_emprestimos_mensal = cursor.fetchone()[0] or 0
-
-    cursor.execute("SELECT COALESCE(SUM(valor_venda), 0) FROM vendas")
-    total_vendas = cursor.fetchone()[0] or 0
-
-    cursor.execute("SELECT COALESCE(SUM(valor_custo), 0) FROM vendas")
-    custo_vendas = cursor.fetchone()[0] or 0
-
-    cursor.execute("SELECT COALESCE(SUM(lucro), 0) FROM vendas")
-    lucro_vendas = cursor.fetchone()[0] or 0
-
-    cursor.execute("""
-        SELECT COALESCE(SUM(lucro), 0)
-        FROM vendas
-        WHERE data_venda ~ '^\\d{2}/\\d{2}/\\d{4}$'
-          AND TO_DATE(data_venda, 'DD/MM/YYYY') >= CURRENT_DATE - INTERVAL '7 days'
-    """)
-    lucro_vendas_semanal = cursor.fetchone()[0] or 0
-
-    cursor.execute("""
-        SELECT COALESCE(SUM(lucro), 0)
-        FROM vendas
-        WHERE data_venda ~ '^\\d{2}/\\d{2}/\\d{4}$'
-          AND DATE_TRUNC('month', TO_DATE(data_venda, 'DD/MM/YYYY')) = DATE_TRUNC('month', CURRENT_DATE)
-    """)
-    lucro_vendas_mensal = cursor.fetchone()[0] or 0
-
-    cursor.execute(f"""
-        SELECT {lucro_emprestimo_sql()}
-        FROM pagamentos p
-        JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE e.taxa = 20
-    """)
-    lucro_20 = cursor.fetchone()[0] or 0
-
-    cursor.execute(f"""
-        SELECT {lucro_emprestimo_sql()}
-        FROM pagamentos p
-        JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE e.taxa = 30
-    """)
-    lucro_30 = cursor.fetchone()[0] or 0
-
-    cursor.close()
-    conn.close()
-
-    lucro_geral = float(lucro_emprestimos or 0) + float(lucro_vendas or 0)
-    lucro_semanal = float(lucro_emprestimos_semanal or 0) + float(lucro_vendas_semanal or 0)
-    lucro_mensal = float(lucro_emprestimos_mensal or 0) + float(lucro_vendas_mensal or 0)
-
-    return jsonify({
-        "total_recebido": round(float(total_recebido_emprestimos) + float(total_vendas), 2),
-        "total_recebido_emprestimos": round(float(total_recebido_emprestimos), 2),
-        "total_pagamentos": total_pagamentos,
-        "total_atraso": round(float(total_atraso), 2),
-        "total_emprestado": round(float(total_emprestado), 2),
-        "total_em_aberto": round(float(total_em_aberto), 2),
-        "lucro_20": round(float(lucro_20), 2),
-        "lucro_30": round(float(lucro_30), 2),
-        "total_vendas": round(float(total_vendas), 2),
-        "custo_vendas": round(float(custo_vendas), 2),
-        "lucro_emprestimos": round(float(lucro_emprestimos), 2),
-        "lucro_vendas": round(float(lucro_vendas), 2),
-        "lucro_geral": round(float(lucro_geral), 2),
-        "lucro_emprestimos_semanal": round(float(lucro_emprestimos_semanal), 2),
-        "lucro_vendas_semanal": round(float(lucro_vendas_semanal), 2),
-        "lucro_semanal": round(float(lucro_semanal), 2),
-        "lucro_emprestimos_mensal": round(float(lucro_emprestimos_mensal), 2),
-        "lucro_vendas_mensal": round(float(lucro_vendas_mensal), 2),
-        "lucro_mensal": round(float(lucro_mensal), 2)
-    })
+    return resumo()
 
 
 @app.route("/api/gerar-pdf", methods=["GET"])
