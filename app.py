@@ -53,17 +53,17 @@ def formatar_data_texto(valor):
         return valor[:10]
 
 
-def acesso_local():
-    ip = request.remote_addr or ""
-    return ip in ("127.0.0.1", "::1", "localhost")
-
-
 def usuario_logado():
     return session.get("usuario")
 
 
 def usuario_e_admin():
     return bool(session.get("is_admin"))
+
+
+def acesso_local():
+    ip = request.remote_addr or ""
+    return ip in ("127.0.0.1", "::1", "localhost")
 
 
 def exigir_admin():
@@ -77,6 +77,16 @@ def exigir_admin():
         return jsonify({"ok": False, "mensagem": "Acesso admin permitido apenas localmente."}), 403
 
     return None
+
+
+def lucro_sql():
+    return """
+        COALESCE(SUM(CASE
+            WHEN p.tipo = 'juros' THEN p.valor_pago
+            WHEN p.tipo = 'total' THEN e.juros
+            ELSE 0
+        END), 0)
+    """
 
 
 def criar_tabelas_admin_log():
@@ -127,14 +137,10 @@ def registrar_log_admin(acao, sql_texto="", detalhes=""):
 criar_tabelas_admin_log()
 
 
-# ---------------- FRONT ----------------
-
 @app.route("/")
 def home():
     return render_template("index.html")
 
-
-# ---------------- SESSÃO ----------------
 
 @app.route("/api/sessao", methods=["GET"])
 def obter_sessao():
@@ -144,8 +150,6 @@ def obter_sessao():
         "is_admin": usuario_e_admin()
     })
 
-
-# ---------------- BACKUP ----------------
 
 @app.route("/api/backup-banco", methods=["GET"])
 def backup_banco():
@@ -162,8 +166,6 @@ def restaurar_banco():
         "mensagem": "Restauração por arquivo .db não funciona mais, pois agora o banco é PostgreSQL/Supabase."
     })
 
-
-# ---------------- LOGIN ----------------
 
 @app.route("/api/verificar-tem-usuario", methods=["GET"])
 def verificar_tem_usuario():
@@ -276,8 +278,6 @@ def logout():
     return jsonify({"ok": True})
 
 
-# ---------------- CONFIGURAÇÕES ----------------
-
 @app.route("/api/obter-modo-taxa", methods=["GET"])
 def obter_modo_taxa():
     conn = conectar()
@@ -296,8 +296,6 @@ def obter_modo_taxa():
 
     return jsonify({"modo_taxa": (linha[0] if linha else "ambos")})
 
-
-# ---------------- RESUMO ----------------
 
 @app.route("/api/resumo", methods=["GET"])
 def resumo():
@@ -318,12 +316,8 @@ def resumo():
     """)
     total_em_aberto = cursor.fetchone()[0] or 0
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(CASE
-            WHEN p.tipo = 'juros' THEN p.valor_pago
-            WHEN p.tipo = 'total' THEN e.juros
-            ELSE 0
-        END), 0)
+    cursor.execute(f"""
+        SELECT {lucro_sql()}
         FROM pagamentos p
         JOIN emprestimos e ON e.id = p.emprestimo_id
     """)
@@ -333,6 +327,7 @@ def resumo():
         SELECT COUNT(DISTINCT cliente_id)
         FROM emprestimos
         WHERE LOWER(TRIM(status)) = 'aberto'
+          AND data_vencimento ~ '^\\d{2}/\\d{2}/\\d{4}$'
           AND TO_DATE(data_vencimento, 'DD/MM/YYYY') < CURRENT_DATE
     """)
     clientes_em_atraso = cursor.fetchone()[0] or 0
@@ -351,7 +346,6 @@ def resumo():
         "total_clientes": total_clientes
     })
 
-# ---------------- GRÁFICO ----------------
 
 @app.route("/api/dados-grafico-dashboard", methods=["GET"])
 def dados_grafico_dashboard():
@@ -369,14 +363,23 @@ def dados_grafico_dashboard():
         SELECT COUNT(*)
         FROM emprestimos
         WHERE LOWER(TRIM(status)) = 'aberto'
+          AND data_vencimento ~ '^\\d{2}/\\d{2}/\\d{4}$'
           AND TO_DATE(data_vencimento, 'DD/MM/YYYY') < CURRENT_DATE
     """)
     atraso = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COUNT(*) FROM emprestimos WHERE taxa = 20")
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM emprestimos
+        WHERE taxa = 20 AND LOWER(TRIM(status)) = 'aberto'
+    """)
     taxa20 = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COUNT(*) FROM emprestimos WHERE taxa = 30")
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM emprestimos
+        WHERE taxa = 30 AND LOWER(TRIM(status)) = 'aberto'
+    """)
     taxa30 = cursor.fetchone()[0] or 0
 
     cursor.close()
@@ -389,8 +392,6 @@ def dados_grafico_dashboard():
         {"nome": "Empréstimo 30%", "valor": taxa30}
     ])
 
-
-# ---------------- CLIENTES ----------------
 
 @app.route("/api/clientes", methods=["GET"])
 def lista_clientes():
@@ -520,8 +521,6 @@ def editar_cliente(cliente_id):
     return jsonify({"ok": True, "mensagem": "Cliente atualizado com sucesso."})
 
 
-# ---------------- EMPRÉSTIMOS ----------------
-
 @app.route("/api/emprestimos", methods=["GET"])
 def lista_emprestimos():
     conn = conectar()
@@ -545,25 +544,6 @@ def lista_emprestimos():
     """)
 
     dados = cursor.fetchall()
-
-    cursor.close()
-    conn.close()
-
-    return jsonify([
-        {
-            "id": item[0],
-            "cliente": item[1],
-            "cliente_id": item[2],
-            "valor": float(item[3] or 0),
-            "taxa": float(item[4] or 0),
-            "juros": float(item[5] or 0),
-            "total": float(item[6] or 0),
-            "data_contratacao": formatar_data_texto(item[7]),
-            "vencimento": formatar_data_texto(item[8]),
-            "status": item[9]
-        }
-        for item in dados
-    ])
 
     cursor.close()
     conn.close()
@@ -637,46 +617,56 @@ def quitar_emprestimo(emprestimo_id):
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT total, juros, status
-        FROM emprestimos
-        WHERE id = %s
-    """, (emprestimo_id,))
+    try:
+        cursor.execute("""
+            SELECT total, status
+            FROM emprestimos
+            WHERE id = %s
+            FOR UPDATE
+        """, (emprestimo_id,))
 
-    linha = cursor.fetchone()
+        linha = cursor.fetchone()
 
-    if not linha:
+        if not linha:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return jsonify({"ok": False, "mensagem": "Empréstimo não encontrado."})
+
+        total = float(linha[0] or 0)
+        status = (linha[1] or "").strip().lower()
+
+        if status == "quitado":
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return jsonify({"ok": False, "mensagem": "Esse empréstimo já está quitado."})
+
+        hoje = datetime.now().strftime("%d/%m/%Y")
+
+        cursor.execute("""
+            INSERT INTO pagamentos (emprestimo_id, valor_pago, tipo, data_pagamento)
+            VALUES (%s, %s, %s, %s)
+        """, (emprestimo_id, total, "total", hoje))
+
+        cursor.execute("""
+            UPDATE emprestimos
+            SET status = 'Quitado'
+            WHERE id = %s
+        """, (emprestimo_id,))
+
+        conn.commit()
+
         cursor.close()
         conn.close()
-        return jsonify({"ok": False, "mensagem": "Empréstimo não encontrado."})
 
-    total = float(linha[0] or 0)
-    status = (linha[2] or "").strip().lower()
+        return jsonify({"ok": True, "mensagem": "Empréstimo quitado com sucesso."})
 
-    if status == "quitado":
+    except Exception as e:
+        conn.rollback()
         cursor.close()
         conn.close()
-        return jsonify({"ok": False, "mensagem": "Esse empréstimo já está quitado."})
-
-    hoje = datetime.now().strftime("%d/%m/%Y")
-
-    cursor.execute("""
-        INSERT INTO pagamentos (emprestimo_id, valor_pago, tipo, data_pagamento)
-        VALUES (%s, %s, %s, %s)
-    """, (emprestimo_id, total, "total", hoje))
-
-    cursor.execute("""
-        UPDATE emprestimos
-        SET status = 'Quitado'
-        WHERE id = %s
-    """, (emprestimo_id,))
-
-    conn.commit()
-
-    cursor.close()
-    conn.close()
-
-    return jsonify({"ok": True, "mensagem": "Empréstimo quitado com sucesso."})
+        return jsonify({"ok": False, "mensagem": str(e)})
 
 
 @app.route("/api/emprestimos/<int:emprestimo_id>/pagar-juros", methods=["POST"])
@@ -795,8 +785,6 @@ def alterar_taxa_emprestimo(emprestimo_id):
     return jsonify({"ok": True, "mensagem": "Taxa alterada com sucesso."})
 
 
-# ---------------- RELATÓRIOS ----------------
-
 @app.route("/api/relatorio-resumo", methods=["GET"])
 def relatorio_resumo():
     conn = conectar()
@@ -812,6 +800,7 @@ def relatorio_resumo():
         SELECT COALESCE(SUM(total), 0)
         FROM emprestimos
         WHERE LOWER(TRIM(status)) = 'aberto'
+          AND data_vencimento ~ '^\\d{2}/\\d{2}/\\d{4}$'
           AND TO_DATE(data_vencimento, 'DD/MM/YYYY') < CURRENT_DATE
     """)
     total_atraso = cursor.fetchone()[0] or 0
@@ -830,59 +819,41 @@ def relatorio_resumo():
     """)
     total_em_aberto = cursor.fetchone()[0] or 0
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(CASE
-            WHEN p.tipo = 'juros' THEN p.valor_pago
-            WHEN p.tipo = 'total' THEN e.juros
-            ELSE 0
-        END), 0)
+    cursor.execute(f"""
+        SELECT {lucro_sql()}
         FROM pagamentos p
         JOIN emprestimos e ON e.id = p.emprestimo_id
     """)
     lucro_total = cursor.fetchone()[0] or 0
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(CASE
-            WHEN p.tipo = 'juros' THEN p.valor_pago
-            WHEN p.tipo = 'total' THEN e.juros
-            ELSE 0
-        END), 0)
+    cursor.execute(f"""
+        SELECT {lucro_sql()}
         FROM pagamentos p
         JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE TO_DATE(p.data_pagamento, 'DD/MM/YYYY') >= CURRENT_DATE - INTERVAL '7 days'
+        WHERE p.data_pagamento ~ '^\\d{2}/\\d{2}/\\d{4}$'
+          AND TO_DATE(p.data_pagamento, 'DD/MM/YYYY') >= CURRENT_DATE - INTERVAL '7 days'
     """)
     lucro_semanal = cursor.fetchone()[0] or 0
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(CASE
-            WHEN p.tipo = 'juros' THEN p.valor_pago
-            WHEN p.tipo = 'total' THEN e.juros
-            ELSE 0
-        END), 0)
+    cursor.execute(f"""
+        SELECT {lucro_sql()}
         FROM pagamentos p
         JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE DATE_TRUNC('month', TO_DATE(p.data_pagamento, 'DD/MM/YYYY')) = DATE_TRUNC('month', CURRENT_DATE)
+        WHERE p.data_pagamento ~ '^\\d{2}/\\d{2}/\\d{4}$'
+          AND DATE_TRUNC('month', TO_DATE(p.data_pagamento, 'DD/MM/YYYY')) = DATE_TRUNC('month', CURRENT_DATE)
     """)
     lucro_mensal = cursor.fetchone()[0] or 0
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(CASE
-            WHEN p.tipo = 'juros' THEN p.valor_pago
-            WHEN p.tipo = 'total' THEN e.juros
-            ELSE 0
-        END), 0)
+    cursor.execute(f"""
+        SELECT {lucro_sql()}
         FROM pagamentos p
         JOIN emprestimos e ON e.id = p.emprestimo_id
         WHERE e.taxa = 20
     """)
     lucro_20 = cursor.fetchone()[0] or 0
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(CASE
-            WHEN p.tipo = 'juros' THEN p.valor_pago
-            WHEN p.tipo = 'total' THEN e.juros
-            ELSE 0
-        END), 0)
+    cursor.execute(f"""
+        SELECT {lucro_sql()}
         FROM pagamentos p
         JOIN emprestimos e ON e.id = p.emprestimo_id
         WHERE e.taxa = 30
@@ -906,7 +877,23 @@ def relatorio_resumo():
     })
 
 
-# ---------------- ADMIN SQL ----------------
+@app.route("/api/gerar-pdf", methods=["GET"])
+def gerar_pdf():
+    try:
+        arquivo = gerar_relatorio()
+        return send_file(arquivo, as_attachment=True, download_name="relatorio.pdf")
+    except Exception as e:
+        return jsonify({"ok": False, "mensagem": str(e)})
+
+
+@app.route("/api/gerar-pdf-cliente/<int:cliente_id>", methods=["GET"])
+def gerar_pdf_cliente(cliente_id):
+    try:
+        arquivo = gerar_relatorio_cliente(cliente_id)
+        return send_file(arquivo, as_attachment=True, download_name="relatorio_cliente.pdf")
+    except Exception as e:
+        return jsonify({"ok": False, "mensagem": str(e)})
+
 
 @app.route("/api/admin/tabelas", methods=["GET"])
 def listar_tabelas_admin():
@@ -968,10 +955,7 @@ def executar_sql_admin():
 
         for comando in comandos_bloqueados:
             if comando in sql_lower:
-                return jsonify({
-                    "ok": False,
-                    "mensagem": f"Comando bloqueado por segurança: {comando}"
-                })
+                return jsonify({"ok": False, "mensagem": f"Comando bloqueado por segurança: {comando}"})
 
         conn = conectar()
         cursor = conn.cursor()
@@ -989,11 +973,7 @@ def executar_sql_admin():
             cursor.close()
             conn.close()
 
-            registrar_log_admin(
-                "SQL_SELECT",
-                sql_limpo,
-                f"{len(resultado_linhas)} linha(s) retornadas"
-            )
+            registrar_log_admin("SQL_SELECT", sql_limpo, f"{len(resultado_linhas)} linha(s) retornadas")
 
             return jsonify({
                 "ok": True,
@@ -1006,17 +986,12 @@ def executar_sql_admin():
 
         cursor.execute(sql_limpo)
         conn.commit()
-
         afetadas = cursor.rowcount
 
         cursor.close()
         conn.close()
 
-        registrar_log_admin(
-            "SQL_COMANDO",
-            sql_limpo,
-            f"Linhas afetadas: {afetadas}. Backup: Supabase"
-        )
+        registrar_log_admin("SQL_COMANDO", sql_limpo, f"Linhas afetadas: {afetadas}. Backup: Supabase")
 
         return jsonify({
             "ok": True,
