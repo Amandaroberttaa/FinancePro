@@ -44,6 +44,14 @@ async function apiPut(url, dados = {}) {
   return await resp.json();
 }
 
+async function apiDelete(url) {
+  const resp = await fetch(url, {
+    method: "DELETE",
+    credentials: "same-origin"
+  });
+  return await resp.json();
+}
+
 async function trocarTela(nomeTela) {
   document.querySelectorAll(".screen").forEach(screen => screen.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(btn => btn.classList.remove("active"));
@@ -59,6 +67,10 @@ async function trocarTela(nomeTela) {
   if (nomeTela === "emprestimos") {
     await carregarClientes();
     await carregarEmprestimos();
+  }
+  if (nomeTela === "vendas") {
+    await carregarVendas();
+    await carregarResumoVendas();
   }
   if (nomeTela === "relatorios") await carregarRelatorios();
   if (nomeTela === "admin") await carregarLogsAdmin();
@@ -181,9 +193,13 @@ async function carregarResumo() {
 
   if (document.getElementById("totalEmprestado")) document.getElementById("totalEmprestado").innerText = formatarMoeda(dados.total_emprestado);
   if (document.getElementById("totalAberto")) document.getElementById("totalAberto").innerText = formatarMoeda(dados.total_em_aberto);
-  if (document.getElementById("lucroTotal")) document.getElementById("lucroTotal").innerText = formatarMoeda(dados.lucro_total);
+  if (document.getElementById("lucroTotal")) document.getElementById("lucroTotal").innerText = formatarMoeda(dados.lucro_emprestimos || dados.lucro_total);
   if (document.getElementById("clientesEmAtraso")) document.getElementById("clientesEmAtraso").innerText = dados.clientes_em_atraso;
   if (document.getElementById("totalClientes")) document.getElementById("totalClientes").innerText = dados.total_clientes || 0;
+
+  if (document.getElementById("dashTotalVendas")) document.getElementById("dashTotalVendas").innerText = formatarMoeda(dados.total_vendas);
+  if (document.getElementById("dashLucroVendas")) document.getElementById("dashLucroVendas").innerText = formatarMoeda(dados.lucro_vendas);
+  if (document.getElementById("dashLucroGeral")) document.getElementById("dashLucroGeral").innerText = formatarMoeda(dados.lucro_geral);
 }
 
 async function carregarGraficoStatus() {
@@ -203,14 +219,11 @@ async function carregarGraficoStatus() {
       labels,
       datasets: [{
         data: valores,
-        backgroundColor: ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b"],
+        backgroundColor: ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6"],
         borderWidth: 0
       }]
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false
-    }
+    options: { responsive: true, maintainAspectRatio: false }
   });
 }
 
@@ -229,9 +242,7 @@ async function carregarClientes() {
   if (select) select.innerHTML = `<option value="">Selecione o cliente</option>`;
   if (totalClientesCadastro) totalClientesCadastro.innerText = clientes.length;
 
-  if (!clientes.length && lista) {
-    lista.innerHTML = "<p>Nenhum cliente cadastrado.</p>";
-  }
+  if (!clientes.length && lista) lista.innerHTML = "<p>Nenhum cliente cadastrado.</p>";
 
   clientes.forEach(cliente => {
     if (lista) {
@@ -343,7 +354,7 @@ async function carregarEmprestimos() {
   tabela.innerHTML = "";
 
   if (!emprestimos.length) {
-    tabela.innerHTML = `<tr><td colspan="10">Nenhum empréstimo cadastrado.</td></tr>`;
+    tabela.innerHTML = `<tr><td colspan="10">Nenhum empréstimo aberto.</td></tr>`;
     return;
   }
 
@@ -406,7 +417,6 @@ async function confirmarQuitado(id) {
   }
 
   alert(resposta.mensagem);
-
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -424,7 +434,6 @@ async function confirmarJuros(id) {
   }
 
   alert(resposta.mensagem);
-
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -444,8 +453,106 @@ async function alterarTaxaEmprestimo(id, taxaAtual) {
   }
 
   alert(resposta.mensagem);
-
   await carregarEmprestimos();
+  await carregarDashboard();
+  await carregarRelatorios();
+}
+
+async function carregarVendas() {
+  const vendas = await apiGet("/api/vendas");
+  const tabela = document.getElementById("tabelaVendas");
+  if (!tabela) return;
+
+  tabela.innerHTML = "";
+
+  if (!vendas.length) {
+    tabela.innerHTML = `<tr><td colspan="9">Nenhuma venda registrada.</td></tr>`;
+    return;
+  }
+
+  vendas.forEach(venda => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${venda.id}</td>
+      <td>${escaparHtml(venda.produto)}</td>
+      <td>${escaparHtml(venda.cliente || "-")}</td>
+      <td>${formatarMoeda(venda.valor_venda)}</td>
+      <td>${formatarMoeda(venda.valor_custo)}</td>
+      <td>${formatarMoeda(venda.lucro)}</td>
+      <td>${escaparHtml(venda.data_venda || "-")}</td>
+      <td>${escaparHtml(venda.observacao || "-")}</td>
+      <td>
+        <button class="action-btn warning" onclick="excluirVenda(${venda.id})">Excluir</button>
+      </td>
+    `;
+    tabela.appendChild(tr);
+  });
+}
+
+async function carregarResumoVendas() {
+  const rel = await apiGet("/api/relatorio-resumo");
+
+  if (document.getElementById("vendasTotalVendido")) {
+    document.getElementById("vendasTotalVendido").innerText = formatarMoeda(rel.total_vendas);
+  }
+
+  if (document.getElementById("vendasLucro")) {
+    document.getElementById("vendasLucro").innerText = formatarMoeda(rel.lucro_vendas);
+  }
+}
+
+async function adicionarVenda() {
+  const produto = document.getElementById("vendaProduto")?.value || "";
+  const cliente = document.getElementById("vendaCliente")?.value || "";
+  const valor_venda = document.getElementById("vendaValor")?.value || "";
+  const valor_custo = document.getElementById("vendaCusto")?.value || "";
+  const data_venda = document.getElementById("vendaData")?.value || "";
+  const observacao = document.getElementById("vendaObservacao")?.value || "";
+
+  const resposta = await apiPost("/api/vendas", {
+    produto,
+    cliente,
+    valor_venda,
+    valor_custo,
+    data_venda,
+    observacao
+  });
+
+  if (!resposta.ok) {
+    alert(resposta.mensagem);
+    return;
+  }
+
+  document.getElementById("vendaProduto").value = "";
+  document.getElementById("vendaCliente").value = "";
+  document.getElementById("vendaValor").value = "";
+  document.getElementById("vendaCusto").value = "";
+  document.getElementById("vendaData").value = "";
+  document.getElementById("vendaObservacao").value = "";
+
+  alert(resposta.mensagem);
+
+  await carregarVendas();
+  await carregarResumoVendas();
+  await carregarDashboard();
+  await carregarRelatorios();
+}
+
+async function excluirVenda(id) {
+  const ok = confirm("Deseja excluir esta venda?");
+  if (!ok) return;
+
+  const resposta = await apiDelete(`/api/vendas/${id}`);
+
+  if (!resposta.ok) {
+    alert(resposta.mensagem);
+    return;
+  }
+
+  alert(resposta.mensagem);
+
+  await carregarVendas();
+  await carregarResumoVendas();
   await carregarDashboard();
   await carregarRelatorios();
 }
@@ -453,22 +560,24 @@ async function alterarTaxaEmprestimo(id, taxaAtual) {
 async function carregarRelatorios() {
   const rel = await apiGet("/api/relatorio-resumo");
 
-  if (document.getElementById("totalRecebido")) {
-    document.getElementById("totalRecebido").innerText = formatarMoeda(rel.total_recebido);
-    document.getElementById("totalPagamentos").innerText = rel.total_pagamentos;
-    document.getElementById("totalAtraso").innerText = formatarMoeda(rel.total_atraso);
-    document.getElementById("relTotalEmprestado").innerText = formatarMoeda(rel.total_emprestado);
-    document.getElementById("relLucro20").innerText = formatarMoeda(rel.lucro_20);
-    document.getElementById("relLucro30").innerText = formatarMoeda(rel.lucro_30);
+  if (document.getElementById("totalRecebido")) document.getElementById("totalRecebido").innerText = formatarMoeda(rel.total_recebido);
+  if (document.getElementById("totalPagamentos")) document.getElementById("totalPagamentos").innerText = rel.total_pagamentos;
+  if (document.getElementById("totalAtraso")) document.getElementById("totalAtraso").innerText = formatarMoeda(rel.total_atraso);
+  if (document.getElementById("relTotalEmprestado")) document.getElementById("relTotalEmprestado").innerText = formatarMoeda(rel.total_emprestado);
+  if (document.getElementById("relTotalEmAberto")) document.getElementById("relTotalEmAberto").innerText = formatarMoeda(rel.total_em_aberto);
+  if (document.getElementById("relLucro20")) document.getElementById("relLucro20").innerText = formatarMoeda(rel.lucro_20);
+  if (document.getElementById("relLucro30")) document.getElementById("relLucro30").innerText = formatarMoeda(rel.lucro_30);
 
-    if (document.getElementById("relLucroSemanal")) {
-      document.getElementById("relLucroSemanal").innerText = formatarMoeda(rel.lucro_semanal || 0);
-    }
+  if (document.getElementById("relLucroEmprestimos")) document.getElementById("relLucroEmprestimos").innerText = formatarMoeda(rel.lucro_emprestimos);
+  if (document.getElementById("relLucroVendas")) document.getElementById("relLucroVendas").innerText = formatarMoeda(rel.lucro_vendas);
+  if (document.getElementById("relLucroGeral")) document.getElementById("relLucroGeral").innerText = formatarMoeda(rel.lucro_geral);
+  if (document.getElementById("relTotalVendas")) document.getElementById("relTotalVendas").innerText = formatarMoeda(rel.total_vendas);
+  if (document.getElementById("relCustoVendas")) document.getElementById("relCustoVendas").innerText = formatarMoeda(rel.custo_vendas);
 
-    if (document.getElementById("relLucroMensal")) {
-      document.getElementById("relLucroMensal").innerText = formatarMoeda(rel.lucro_mensal || 0);
-    }
-  }
+  if (document.getElementById("relLucroEmprestimosSemanal")) document.getElementById("relLucroEmprestimosSemanal").innerText = formatarMoeda(rel.lucro_emprestimos_semanal);
+  if (document.getElementById("relLucroVendasSemanal")) document.getElementById("relLucroVendasSemanal").innerText = formatarMoeda(rel.lucro_vendas_semanal);
+  if (document.getElementById("relLucroSemanal")) document.getElementById("relLucroSemanal").innerText = formatarMoeda(rel.lucro_semanal);
+  if (document.getElementById("relLucroMensal")) document.getElementById("relLucroMensal").innerText = formatarMoeda(rel.lucro_mensal);
 }
 
 function gerarPdf() {
@@ -504,38 +613,26 @@ function configurarFormsAuth() {
 }
 
 function configurarEnterCadastros() {
-  const camposCliente = [
-    document.getElementById("novoNome"),
-    document.getElementById("novoTelefone"),
-    document.getElementById("novoCpf"),
-    document.getElementById("novoEndereco"),
-    document.getElementById("novaDataContratacao")
+  const ids = [
+    "novoNome", "novoTelefone", "novoCpf", "novoEndereco", "novaDataContratacao",
+    "emprestimoCliente", "emprestimoValor", "emprestimoData", "emprestimoTaxa",
+    "vendaProduto", "vendaCliente", "vendaValor", "vendaCusto", "vendaData", "vendaObservacao"
   ];
 
-  camposCliente.forEach(input => {
+  ids.forEach(id => {
+    const input = document.getElementById(id);
     if (input) {
       input.addEventListener("keydown", event => {
         if (event.key === "Enter") {
           event.preventDefault();
-          adicionarCliente();
-        }
-      });
-    }
-  });
 
-  const camposEmprestimo = [
-    document.getElementById("emprestimoCliente"),
-    document.getElementById("emprestimoValor"),
-    document.getElementById("emprestimoData"),
-    document.getElementById("emprestimoTaxa")
-  ];
-
-  camposEmprestimo.forEach(input => {
-    if (input) {
-      input.addEventListener("keydown", event => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          adicionarEmprestimo();
+          if (id.startsWith("venda")) {
+            adicionarVenda();
+          } else if (id.startsWith("emprestimo")) {
+            adicionarEmprestimo();
+          } else {
+            adicionarCliente();
+          }
         }
       });
     }
@@ -556,9 +653,7 @@ async function carregarTabelasAdmin() {
 
     if (!resposta.ok) {
       lista.innerHTML = "<option value=''>Falha ao carregar</option>";
-      if (mensagem) {
-        mensagem.innerHTML = `<div class="admin-alert error">${escaparHtml(resposta.mensagem || "Erro ao carregar tabelas.")}</div>`;
-      }
+      if (mensagem) mensagem.innerHTML = `<div class="admin-alert error">${escaparHtml(resposta.mensagem || "Erro ao carregar tabelas.")}</div>`;
       return;
     }
 
@@ -576,9 +671,7 @@ async function carregarTabelasAdmin() {
     }
   } catch (erro) {
     lista.innerHTML = "<option value=''>Erro na requisição</option>";
-    if (mensagem) {
-      mensagem.innerHTML = `<div class="admin-alert error">${escaparHtml(erro.message || "Erro inesperado.")}</div>`;
-    }
+    if (mensagem) mensagem.innerHTML = `<div class="admin-alert error">${escaparHtml(erro.message || "Erro inesperado.")}</div>`;
   }
 }
 
@@ -634,9 +727,7 @@ function renderizarResultadoAdmin(colunas, linhas) {
   if (!resultado) return;
 
   let html = `<div class="table-wrap"><table><thead><tr>`;
-
   colunas.forEach(coluna => html += `<th>${escaparHtml(coluna)}</th>`);
-
   html += `</tr></thead><tbody>`;
 
   if (!linhas.length) {
@@ -660,8 +751,7 @@ function preencherExemploAdmin(tipo) {
   if (tipo === "clientes") sql.value = "SELECT * FROM clientes ORDER BY id DESC LIMIT 50;";
   if (tipo === "emprestimos") sql.value = "SELECT * FROM emprestimos ORDER BY id DESC LIMIT 50;";
   if (tipo === "pagamentos") sql.value = "SELECT * FROM pagamentos ORDER BY id DESC LIMIT 50;";
-  if (tipo === "corrigir_status") sql.value = "UPDATE emprestimos SET status = 'Quitado' WHERE id = 1;";
-  if (tipo === "corrigir_nome") sql.value = "UPDATE clientes SET nome = 'Nome Corrigido' WHERE id = 1;";
+  if (tipo === "vendas") sql.value = "SELECT * FROM vendas ORDER BY id DESC LIMIT 50;";
 }
 
 async function carregarLogsAdmin() {

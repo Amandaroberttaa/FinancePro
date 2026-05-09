@@ -52,10 +52,6 @@
         <button type="submit" class="primary-btn">Entrar</button>
         <button type="button" class="secondary-btn" onclick="voltarInicio()">Voltar</button>
       </form>
-
-      <div class="auth-security-note">
-       
-      </div>
     </div>
   </section>
 
@@ -67,7 +63,7 @@
           <img src="{{ url_for('static', filename='img/logo.png') }}" alt="FinancePro" class="brand-logo">
           <div>
             <h2>FinancePro</h2>
-            <p>Controle de Empréstimos</p>
+            <p>Controle financeiro</p>
           </div>
         </div>
 
@@ -80,10 +76,9 @@
           <button class="nav-item active" data-screen="dashboard">Dashboard</button>
           <button class="nav-item" data-screen="clientes">Clientes</button>
           <button class="nav-item" data-screen="emprestimos">Empréstimos</button>
+          <button class="nav-item" data-screen="vendas">Vendas</button>
           <button class="nav-item" data-screen="relatorios">Relatórios</button>
-          <button class="nav-item admin-nav-item" id="navAdmin" data-screen="admin" style="display:none;">
-            Admin SQL
-          </button>
+          <button class="nav-item admin-nav-item" id="navAdmin" data-screen="admin" style="display:none;">Admin SQL</button>
         </nav>
       </div>
 
@@ -98,9 +93,7 @@
           <strong id="userSessionName">-</strong>
         </div>
 
-        <button type="button" class="primary-btn btn-full" onclick="sairSistema()">
-          Sair
-        </button>
+        <button type="button" class="primary-btn btn-full" onclick="sairSistema()">Sair</button>
       </div>
     </aside>
 
@@ -110,13 +103,13 @@
         <header class="topbar">
           <div>
             <h1>Painel financeiro</h1>
-            <p>Acompanhe clientes, empréstimos e lucro</p>
+            <p>Resumo separado entre empréstimos e vendas</p>
           </div>
         </header>
 
         <section class="hero-grid">
           <div class="hero-card orange">
-            <span>Total emprestado</span>
+            <span>Capital emprestado aberto</span>
             <strong id="totalEmprestado">R$ 0,00</strong>
           </div>
 
@@ -126,7 +119,7 @@
           </div>
 
           <div class="hero-card blue">
-            <span>Lucro total</span>
+            <span>Lucro empréstimos</span>
             <strong id="lucroTotal">R$ 0,00</strong>
           </div>
 
@@ -136,8 +129,30 @@
           </div>
         </section>
 
+        <section class="hero-grid rel-grid">
+          <div class="hero-card">
+            <span>Total vendido</span>
+            <strong id="dashTotalVendas">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro vendas</span>
+            <strong id="dashLucroVendas">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro geral</span>
+            <strong id="dashLucroGeral">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Total clientes</span>
+            <strong id="totalClientes">0</strong>
+          </div>
+        </section>
+
         <section class="chart-card">
-          <h3>Status dos empréstimos</h3>
+          <h3>Status geral</h3>
           <div class="chart-wrap">
             <canvas id="graficoStatus"></canvas>
           </div>
@@ -185,8 +200,8 @@
       <section id="screen-emprestimos" class="screen">
         <header class="topbar">
           <div>
-            <h1>Empréstimos</h1>
-            <p>Crie e gerencie os empréstimos</p>
+            <h1>Empréstimos em aberto</h1>
+            <p>Quando quitar, o empréstimo sai automaticamente desta lista</p>
           </div>
         </header>
 
@@ -205,7 +220,7 @@
         </div>
 
         <div class="panel-card" style="margin-top:20px;">
-          <h3>Lista de empréstimos</h3>
+          <h3>Lista de empréstimos abertos</h3>
           <div class="table-wrap">
             <table>
               <thead>
@@ -232,22 +247,82 @@
         </div>
       </section>
 
+      <section id="screen-vendas" class="screen">
+        <header class="topbar">
+          <div>
+            <h1>Vendas</h1>
+            <p>Registre vendas de produtos como iPhone, perfume e outros itens</p>
+          </div>
+        </header>
+
+        <div class="panel-grid">
+          <div class="panel-card">
+            <h3>Nova venda</h3>
+            <input type="text" id="vendaProduto" placeholder="Produto vendido">
+            <input type="text" id="vendaCliente" placeholder="Cliente (opcional)">
+            <input type="number" id="vendaValor" placeholder="Valor de venda">
+            <input type="number" id="vendaCusto" placeholder="Valor de custo">
+            <input type="text" id="vendaData" placeholder="Data da venda (dd/mm/aaaa)">
+            <input type="text" id="vendaObservacao" placeholder="Observação">
+            <button type="button" class="primary-btn" onclick="adicionarVenda()">Registrar venda</button>
+          </div>
+
+          <div class="panel-card">
+            <h3>Resumo de vendas</h3>
+            <div class="hero-card green">
+              <span>Total vendido</span>
+              <strong id="vendasTotalVendido">R$ 0,00</strong>
+            </div>
+            <div class="hero-card blue" style="margin-top:12px;">
+              <span>Lucro em vendas</span>
+              <strong id="vendasLucro">R$ 0,00</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card" style="margin-top:20px;">
+          <h3>Lista de vendas</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Produto</th>
+                  <th>Cliente</th>
+                  <th>Venda</th>
+                  <th>Custo</th>
+                  <th>Lucro</th>
+                  <th>Data</th>
+                  <th>Observação</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tabelaVendas">
+                <tr>
+                  <td colspan="9">Nenhuma venda registrada.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section id="screen-relatorios" class="screen">
         <header class="topbar">
           <div>
             <h1>Relatórios</h1>
-            <p>Resumo financeiro do sistema</p>
+            <p>Resumo financeiro separado por origem</p>
           </div>
         </header>
 
         <section class="hero-grid">
           <div class="hero-card orange">
-            <span>Total recebido</span>
+            <span>Total recebido geral</span>
             <strong id="totalRecebido">R$ 0,00</strong>
           </div>
 
           <div class="hero-card green">
-            <span>Total pagamentos</span>
+            <span>Pagamentos empréstimos</span>
             <strong id="totalPagamentos">0</strong>
           </div>
 
@@ -257,8 +332,52 @@
           </div>
 
           <div class="hero-card purple">
-            <span>Total emprestado</span>
+            <span>Capital emprestado aberto</span>
             <strong id="relTotalEmprestado">R$ 0,00</strong>
+          </div>
+        </section>
+
+        <section class="hero-grid rel-grid">
+          <div class="hero-card">
+            <span>Lucro empréstimos</span>
+            <strong id="relLucroEmprestimos">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro vendas</span>
+            <strong id="relLucroVendas">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro geral</span>
+            <strong id="relLucroGeral">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Total vendido</span>
+            <strong id="relTotalVendas">R$ 0,00</strong>
+          </div>
+        </section>
+
+        <section class="hero-grid rel-grid">
+          <div class="hero-card">
+            <span>Lucro empréstimos semanal</span>
+            <strong id="relLucroEmprestimosSemanal">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro vendas semanal</span>
+            <strong id="relLucroVendasSemanal">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro semanal geral</span>
+            <strong id="relLucroSemanal">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card">
+            <span>Lucro mensal geral</span>
+            <strong id="relLucroMensal">R$ 0,00</strong>
           </div>
         </section>
 
@@ -274,13 +393,13 @@
           </div>
 
           <div class="hero-card">
-            <span>Lucro semanal</span>
-            <strong id="relLucroSemanal">R$ 0,00</strong>
+            <span>Custo das vendas</span>
+            <strong id="relCustoVendas">R$ 0,00</strong>
           </div>
 
           <div class="hero-card">
-            <span>Lucro mensal</span>
-            <strong id="relLucroMensal">R$ 0,00</strong>
+            <span>Em aberto</span>
+            <strong id="relTotalEmAberto">R$ 0,00</strong>
           </div>
         </section>
 
@@ -300,9 +419,7 @@
 
         <div class="panel-card admin-panel-header">
           <h3>Console administrativo</h3>
-          <p class="admin-panel-subtitle">
-            Ambiente técnico para consulta, manutenção, backup e auditoria do banco de dados.
-          </p>
+          <p class="admin-panel-subtitle">Ambiente técnico para consulta, manutenção e auditoria do banco de dados.</p>
         </div>
 
         <div class="panel-card">
@@ -323,8 +440,7 @@
             <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('clientes')">SELECT clientes</button>
             <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('emprestimos')">SELECT empréstimos</button>
             <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('pagamentos')">SELECT pagamentos</button>
-            <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('corrigir_status')">UPDATE status</button>
-            <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('corrigir_nome')">UPDATE cliente</button>
+            <button type="button" class="secondary-btn" onclick="preencherExemploAdmin('vendas')">SELECT vendas</button>
           </div>
         </div>
 
