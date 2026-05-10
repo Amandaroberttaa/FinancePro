@@ -27,7 +27,8 @@ app.secret_key = os.environ.get("FINANCEPRO_SECRET_KEY", "financepro_secret_2026
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=True
+    SESSION_COOKIE_SECURE=os.environ.get("VERCEL") == "1",
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7)
 )
 criar_tabelas()
 
@@ -226,14 +227,30 @@ def criar_usuario():
 
 @app.route("/api/login", methods=["POST"])
 def login():
+
+    session.permanent = True
+
     dados = request.get_json() or {}
+
     usuario = (dados.get("usuario") or "").strip()
     senha = (dados.get("senha") or "").strip()
 
+    if not usuario or not senha:
+        return jsonify({
+            "ok": False,
+            "mensagem": "Informe usuário e senha."
+        })
+
     if usuario.upper() == ADMIN_USUARIO and senha == ADMIN_SENHA:
+
         session["usuario"] = ADMIN_USUARIO
         session["is_admin"] = True
-        registrar_log_admin("LOGIN_ADMIN", "", "Administrador entrou no sistema")
+
+        registrar_log_admin(
+            "LOGIN_ADMIN",
+            "",
+            "Administrador entrou no sistema"
+        )
 
         return jsonify({
             "ok": True,
@@ -245,29 +262,52 @@ def login():
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT id, usuario
-        FROM usuarios
-        WHERE usuario = %s AND senha = %s
-    """, (usuario, senha))
+    try:
 
-    linha = cursor.fetchone()
+        cursor.execute("""
+            SELECT id, usuario
+            FROM usuarios
+            WHERE usuario = %s
+              AND senha = %s
+        """, (usuario, senha))
 
-    cursor.close()
-    conn.close()
+        linha = cursor.fetchone()
 
-    if not linha:
-        return jsonify({"ok": False, "mensagem": "Usuário ou senha inválidos."})
+        if not linha:
+            cursor.close()
+            conn.close()
 
-    session["usuario"] = linha[1]
-    session["is_admin"] = False
+            return jsonify({
+                "ok": False,
+                "mensagem": "Usuário ou senha inválidos."
+            })
 
-    return jsonify({
-        "ok": True,
-        "mensagem": "Login realizado com sucesso.",
-        "is_admin": False,
-        "usuario": linha[1]
-    })
+        session["usuario"] = linha[1]
+        session["is_admin"] = False
+
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "ok": True,
+            "mensagem": "Login realizado com sucesso.",
+            "is_admin": False,
+            "usuario": linha[1]
+        })
+
+    except Exception as e:
+
+        conn.rollback()
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "ok": False,
+            "mensagem": str(e)
+        })
 
 
 @app.route("/api/logout", methods=["POST"])
