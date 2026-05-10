@@ -162,21 +162,32 @@ async function fazerLogin() {
   const usuario = document.getElementById("loginUsuario")?.value || "";
   const senha = document.getElementById("loginSenha")?.value || "";
 
-  const resposta = await apiPost("/api/login", { usuario, senha });
-
-  if (!resposta.ok) {
-    alert(resposta.mensagem);
+  if (!usuario.trim() || !senha.trim()) {
+    alert("Informe usuário e senha.");
     return;
   }
 
-  document.getElementById("screen-inicial").style.display = "none";
-  document.getElementById("screen-login").style.display = "none";
-  document.getElementById("screen-criar-usuario").style.display = "none";
-  document.getElementById("appLayout").style.display = "flex";
+  const resposta = await apiPost("/api/login", { usuario, senha });
+
+  if (!resposta.ok) {
+    alert(resposta.mensagem || "Usuário ou senha inválidos.");
+    return;
+  }
+
+  const telaInicial = document.getElementById("screen-inicial");
+  const telaLogin = document.getElementById("screen-login");
+  const telaCriar = document.getElementById("screen-criar-usuario");
+  const appLayout = document.getElementById("appLayout");
+
+  if (telaInicial) telaInicial.style.display = "none";
+  if (telaLogin) telaLogin.style.display = "none";
+  if (telaCriar) telaCriar.style.display = "none";
+  if (appLayout) appLayout.style.display = "flex";
 
   document.getElementById("formLogin")?.reset();
 
   atualizarInfoSessao(resposta.usuario || "", !!resposta.is_admin);
+
   await carregarDashboard();
 }
 
