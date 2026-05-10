@@ -45,7 +45,7 @@
       <h1>Entrar no sistema</h1>
       <p>Informe seu usuário e senha</p>
 
-      <form id="formLogin">
+      <<form id="formLogin" onsubmit="event.preventDefault(); fazerLogin();">
         <input type="text" id="loginUsuario" placeholder="Usuário" autocomplete="username">
         <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password">
 
