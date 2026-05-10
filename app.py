@@ -24,6 +24,11 @@ app = Flask(
 
 app.secret_key = os.environ.get("FINANCEPRO_SECRET_KEY", "financepro_secret_2026_admin")
 
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=True
+)
 criar_tabelas()
 
 ADMIN_USUARIO = "ADM"

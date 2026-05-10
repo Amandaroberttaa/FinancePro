@@ -188,7 +188,11 @@ async function fazerLogin() {
 
   atualizarInfoSessao(resposta.usuario || "", !!resposta.is_admin);
 
-  await carregarDashboard();
+  try {
+    await carregarDashboard();
+  } catch (erro) {
+    console.error("Erro ao carregar dashboard:", erro);
+  }
 }
 
 async function sairSistema() {
