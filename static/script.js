@@ -73,6 +73,7 @@ async function trocarTela(nomeTela) {
     await carregarResumoVendas();
   }
   if (nomeTela === "relatorios") await carregarRelatorios();
+  if (nomeTela === "historico") await carregarHistoricos();
   if (nomeTela === "admin") await carregarLogsAdmin();
 }
 
@@ -482,7 +483,11 @@ async function carregarVendas() {
       <td>${escaparHtml(venda.data_venda || "-")}</td>
       <td>${escaparHtml(venda.observacao || "-")}</td>
       <td>
-        <button class="action-btn warning" onclick="excluirVenda(${venda.id})">Excluir</button>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="action-btn secondary" onclick="abrirEdicaoVenda(${venda.id})">Editar</button>
+          <button class="action-btn" onclick="baixarReciboVenda(${venda.id})">Recibo</button>
+          <button class="action-btn warning" onclick="excluirVenda(${venda.id})">Excluir</button>
+        </div>
       </td>
     `;
     tabela.appendChild(tr);
@@ -493,7 +498,7 @@ async function carregarResumoVendas() {
   const rel = await apiGet("/api/relatorio-resumo");
 
   if (document.getElementById("vendasTotalVendido")) {
-    document.getElementById("vendasTotalVendido").innerText = formatarMoeda(rel.total_vendas);
+    document.getElementById("vendasTotalVendido").innerText = formatarMoeda(rel.total_vendido ?? rel.total_vendas);
   }
 
   if (document.getElementById("vendasLucro")) {
@@ -538,8 +543,63 @@ async function adicionarVenda() {
   await carregarRelatorios();
 }
 
+async function abrirEdicaoVenda(id) {
+  const resposta = await apiGet(`/api/vendas/${id}`);
+
+  if (!resposta.ok) {
+    alert(resposta.mensagem);
+    return;
+  }
+
+  const venda = resposta.venda;
+  document.getElementById("painelEditarVenda").style.display = "block";
+  document.getElementById("editarVendaId").value = venda.id;
+  document.getElementById("editarVendaProduto").value = venda.produto || "";
+  document.getElementById("editarVendaCliente").value = venda.cliente || "";
+  document.getElementById("editarVendaValor").value = venda.valor_venda || "";
+  document.getElementById("editarVendaCusto").value = venda.valor_custo || "";
+  document.getElementById("editarVendaData").value = venda.data_venda || "";
+  document.getElementById("editarVendaObservacao").value = venda.observacao || "";
+}
+
+function fecharEdicaoVenda() {
+  const painel = document.getElementById("painelEditarVenda");
+  if (painel) painel.style.display = "none";
+}
+
+async function salvarEdicaoVenda() {
+  const id = document.getElementById("editarVendaId")?.value || "";
+  const produto = document.getElementById("editarVendaProduto")?.value || "";
+  const cliente = document.getElementById("editarVendaCliente")?.value || "";
+  const valor_venda = document.getElementById("editarVendaValor")?.value || "";
+  const valor_custo = document.getElementById("editarVendaCusto")?.value || "";
+  const data_venda = document.getElementById("editarVendaData")?.value || "";
+  const observacao = document.getElementById("editarVendaObservacao")?.value || "";
+
+  const resposta = await apiPut(`/api/vendas/${id}`, {
+    produto,
+    cliente,
+    valor_venda,
+    valor_custo,
+    data_venda,
+    observacao
+  });
+
+  if (!resposta.ok) {
+    alert(resposta.mensagem);
+    return;
+  }
+
+  alert(resposta.mensagem);
+  fecharEdicaoVenda();
+  await carregarVendas();
+  await carregarResumoVendas();
+  await carregarDashboard();
+  await carregarRelatorios();
+}
+
 async function excluirVenda(id) {
-  const ok = confirm("Deseja excluir esta venda?");
+  const ok = confirm("Deseja excluir esta venda? Essa ação corrige os relatórios automaticamente.");
   if (!ok) return;
 
   const resposta = await apiDelete(`/api/vendas/${id}`);
@@ -555,6 +615,124 @@ async function excluirVenda(id) {
   await carregarResumoVendas();
   await carregarDashboard();
   await carregarRelatorios();
+}
+
+function baixarReciboVenda(id) {
+  window.open(`/api/recibo/venda/${id}`, "_blank");
+}
+
+function baixarReciboPagamento(id) {
+  window.open(`/api/recibo/pagamento/${id}`, "_blank");
+}
+
+function parametrosHistorico() {
+  const inicio = document.getElementById("histInicio")?.value || "";
+  const fim = document.getElementById("histFim")?.value || "";
+  const params = new URLSearchParams();
+  if (inicio.trim()) params.append("inicio", inicio.trim());
+  if (fim.trim()) params.append("fim", fim.trim());
+  return params.toString();
+}
+
+async function carregarHistoricos() {
+  const query = parametrosHistorico();
+  const sufixo = query ? `?${query}` : "";
+
+  const [pagamentos, quitados, vendas] = await Promise.all([
+    apiGet(`/api/historico/pagamentos${sufixo}`),
+    apiGet(`/api/historico/quitados${sufixo}`),
+    apiGet(`/api/vendas${sufixo}`)
+  ]);
+
+  renderizarHistoricoPagamentos(pagamentos);
+  renderizarHistoricoQuitados(quitados);
+  renderizarHistoricoVendas(vendas);
+}
+
+function limparFiltroHistorico() {
+  const inicio = document.getElementById("histInicio");
+  const fim = document.getElementById("histFim");
+  if (inicio) inicio.value = "";
+  if (fim) fim.value = "";
+  carregarHistoricos();
+}
+
+function renderizarHistoricoPagamentos(pagamentos) {
+  const tabela = document.getElementById("tabelaHistoricoPagamentos");
+  if (!tabela) return;
+
+  if (!pagamentos.length) {
+    tabela.innerHTML = `<tr><td colspan="8">Nenhum pagamento encontrado.</td></tr>`;
+    return;
+  }
+
+  tabela.innerHTML = "";
+  pagamentos.forEach(item => {
+    const tipo = String(item.tipo || "").toLowerCase() === "juros" ? "Juros" : "Quitação";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${item.id}</td>
+      <td>${item.emprestimo_id}</td>
+      <td>${escaparHtml(item.cliente)}</td>
+      <td>${formatarMoeda(item.valor_pago)}</td>
+      <td>${formatarMoeda(item.lucro)}</td>
+      <td>${tipo}</td>
+      <td>${escaparHtml(item.data_pagamento)}</td>
+      <td><button class="action-btn" onclick="baixarReciboPagamento(${item.id})">PDF</button></td>
+    `;
+    tabela.appendChild(tr);
+  });
+}
+
+function renderizarHistoricoQuitados(quitados) {
+  const tabela = document.getElementById("tabelaHistoricoQuitados");
+  if (!tabela) return;
+
+  if (!quitados.length) {
+    tabela.innerHTML = `<tr><td colspan="7">Nenhum empréstimo quitado encontrado.</td></tr>`;
+    return;
+  }
+
+  tabela.innerHTML = "";
+  quitados.forEach(item => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${item.id}</td>
+      <td>${escaparHtml(item.cliente)}</td>
+      <td>${formatarMoeda(item.valor)}</td>
+      <td>${item.taxa}%</td>
+      <td>${formatarMoeda(item.juros)}</td>
+      <td>${formatarMoeda(item.total)}</td>
+      <td>${escaparHtml(item.data_quitacao)}</td>
+    `;
+    tabela.appendChild(tr);
+  });
+}
+
+function renderizarHistoricoVendas(vendas) {
+  const tabela = document.getElementById("tabelaHistoricoVendas");
+  if (!tabela) return;
+
+  if (!vendas.length) {
+    tabela.innerHTML = `<tr><td colspan="8">Nenhuma venda encontrada.</td></tr>`;
+    return;
+  }
+
+  tabela.innerHTML = "";
+  vendas.forEach(item => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${item.id}</td>
+      <td>${escaparHtml(item.produto)}</td>
+      <td>${escaparHtml(item.cliente || "-")}</td>
+      <td>${formatarMoeda(item.valor_venda)}</td>
+      <td>${formatarMoeda(item.valor_custo)}</td>
+      <td>${formatarMoeda(item.lucro)}</td>
+      <td>${escaparHtml(item.data_venda)}</td>
+      <td><button class="action-btn" onclick="baixarReciboVenda(${item.id})">PDF</button></td>
+    `;
+    tabela.appendChild(tr);
+  });
 }
 
 async function carregarRelatorios() {
@@ -576,8 +754,8 @@ async function carregarRelatorios() {
 
   if (document.getElementById("relLucroEmprestimosSemanal")) document.getElementById("relLucroEmprestimosSemanal").innerText = formatarMoeda(rel.lucro_emprestimos_semanal);
   if (document.getElementById("relLucroVendasSemanal")) document.getElementById("relLucroVendasSemanal").innerText = formatarMoeda(rel.lucro_vendas_semanal);
-  if (document.getElementById("relLucroSemanal")) document.getElementById("relLucroSemanal").innerText = formatarMoeda(rel.lucro_semanal);
-  if (document.getElementById("relLucroMensal")) document.getElementById("relLucroMensal").innerText = formatarMoeda(rel.lucro_mensal);
+  if (document.getElementById("relLucroSemanal")) document.getElementById("relLucroSemanal").innerText = formatarMoeda(rel.lucro_semanal_geral ?? rel.lucro_semanal);
+  if (document.getElementById("relLucroMensal")) document.getElementById("relLucroMensal").innerText = formatarMoeda(rel.lucro_mensal_geral ?? rel.lucro_mensal);
 }
 
 function gerarPdf() {
@@ -616,7 +794,7 @@ function configurarEnterCadastros() {
   const ids = [
     "novoNome", "novoTelefone", "novoCpf", "novoEndereco", "novaDataContratacao",
     "emprestimoCliente", "emprestimoValor", "emprestimoData", "emprestimoTaxa",
-    "vendaProduto", "vendaCliente", "vendaValor", "vendaCusto", "vendaData", "vendaObservacao"
+    "vendaProduto", "vendaCliente", "vendaValor", "vendaCusto", "vendaData", "vendaObservacao", "editarVendaProduto", "editarVendaCliente", "editarVendaValor", "editarVendaCusto", "editarVendaData", "editarVendaObservacao"
   ];
 
   ids.forEach(id => {
@@ -626,7 +804,9 @@ function configurarEnterCadastros() {
         if (event.key === "Enter") {
           event.preventDefault();
 
-          if (id.startsWith("venda")) {
+          if (id.startsWith("editarVenda")) {
+            salvarEdicaoVenda();
+          } else if (id.startsWith("venda")) {
             adicionarVenda();
           } else if (id.startsWith("emprestimo")) {
             adicionarEmprestimo();
