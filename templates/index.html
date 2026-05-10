@@ -40,20 +40,14 @@
     </div>
   </section>
 
-  <section id="screen-login" class="auth-screen" style="display:none;">
-    <div class="auth-card">
-      <h1>Entrar no sistema</h1>
-      <p>Informe seu usuário e senha</p>
-
-      <<form id="formLogin" onsubmit="event.preventDefault(); fazerLogin();">
-        <input type="text" id="loginUsuario" placeholder="Usuário" autocomplete="username">
-        <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password">
-
-        <button type="submit" class="primary-btn">Entrar</button>
-        <button type="button" class="secondary-btn" onclick="voltarInicio()">Voltar</button>
-      </form>
-    </div>
-  </section>
+  <nav class="nav">
+  <button class="nav-item active" data-screen="dashboard" onclick="trocarTela('dashboard')">Dashboard</button>
+  <button class="nav-item" data-screen="clientes" onclick="trocarTela('clientes')">Clientes</button>
+  <button class="nav-item" data-screen="emprestimos" onclick="trocarTela('emprestimos')">Empréstimos</button>
+  <button class="nav-item" data-screen="vendas" onclick="trocarTela('vendas')">Vendas</button>
+  <button class="nav-item" data-screen="relatorios" onclick="trocarTela('relatorios')">Relatórios</button>
+  <button class="nav-item admin-nav-item" id="navAdmin" data-screen="admin" onclick="trocarTela('admin')" style="display:none;">Admin SQL</button>
+</nav>
 
   <div class="layout" id="appLayout" style="display:none;">
 
