@@ -1,5 +1,11 @@
 
 let graficoPizza = null;
+
+if (typeof Chart !== "undefined") {
+  Chart.defaults.color = "#cbd5e1";
+  Chart.defaults.borderColor = "rgba(148, 163, 184, 0.14)";
+  Chart.defaults.font.family = "Inter, Arial, sans-serif";
+}
 let graficoFinanceiro = null;
 let deferredPromptPWA = null;
 
