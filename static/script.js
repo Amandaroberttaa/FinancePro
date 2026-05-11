@@ -1,4 +1,62 @@
+
 let graficoPizza = null;
+
+function criarAreaToast() {
+  let area = document.getElementById("toastAreaFinancePro");
+  if (area) return area;
+
+  area = document.createElement("div");
+  area.id = "toastAreaFinancePro";
+  area.style.position = "fixed";
+  area.style.top = "18px";
+  area.style.right = "18px";
+  area.style.zIndex = "99999";
+  area.style.display = "flex";
+  area.style.flexDirection = "column";
+  area.style.gap = "10px";
+  area.style.maxWidth = "360px";
+  document.body.appendChild(area);
+  return area;
+}
+
+function notificar(mensagem, tipo = "info") {
+  const area = criarAreaToast();
+  const toast = document.createElement("div");
+
+  const cores = {
+    sucesso: "#00c853",
+    erro: "#ef4444",
+    alerta: "#f59e0b",
+    info: "#2979ff"
+  };
+
+  toast.textContent = mensagem || "Ação realizada.";
+  toast.style.background = "rgba(18,18,18,0.96)";
+  toast.style.color = "#fff";
+  toast.style.border = `1px solid ${cores[tipo] || cores.info}`;
+  toast.style.borderLeft = `5px solid ${cores[tipo] || cores.info}`;
+  toast.style.padding = "14px 16px";
+  toast.style.borderRadius = "12px";
+  toast.style.boxShadow = "0 10px 30px rgba(0,0,0,0.35)";
+  toast.style.fontSize = "14px";
+  toast.style.lineHeight = "1.4";
+  toast.style.opacity = "0";
+  toast.style.transform = "translateY(-8px)";
+  toast.style.transition = "0.25s ease";
+
+  area.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.style.opacity = "1";
+    toast.style.transform = "translateY(0)";
+  });
+
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(-8px)";
+    setTimeout(() => toast.remove(), 260);
+  }, 3600);
+}
 
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -62,19 +120,24 @@ async function trocarTela(nomeTela) {
   if (tela) tela.classList.add("active");
   if (botao && botao.style.display !== "none") botao.classList.add("active");
 
-  if (nomeTela === "dashboard") await carregarDashboard();
-  if (nomeTela === "clientes") await carregarClientes();
-  if (nomeTela === "emprestimos") {
-    await carregarClientes();
-    await carregarEmprestimos();
+  try {
+    if (nomeTela === "dashboard") await carregarDashboard();
+    if (nomeTela === "clientes") await carregarClientes();
+    if (nomeTela === "emprestimos") {
+      await carregarClientes();
+      await carregarEmprestimos();
+    }
+    if (nomeTela === "vendas") {
+      await carregarVendas();
+      await carregarResumoVendas();
+    }
+    if (nomeTela === "relatorios") await carregarRelatorios();
+    if (nomeTela === "historico") await carregarHistoricos();
+    if (nomeTela === "admin") await carregarLogsAdmin();
+  } catch (erro) {
+    console.error(erro);
+    notificar("Erro ao carregar esta tela.", "erro");
   }
-  if (nomeTela === "vendas") {
-    await carregarVendas();
-    await carregarResumoVendas();
-  }
-  if (nomeTela === "relatorios") await carregarRelatorios();
-  if (nomeTela === "historico") await carregarHistoricos();
-  if (nomeTela === "admin") await carregarLogsAdmin();
 }
 
 function classeStatus(status) {
@@ -106,7 +169,6 @@ function limparInfoSessao() {
 }
 
 async function verificarLoginInicial() {
-  const resposta = await apiGet("/api/verificar-tem-usuario");
   const sessao = await apiGet("/api/sessao");
 
   const telaInicial = document.getElementById("screen-inicial");
@@ -126,19 +188,10 @@ async function verificarLoginInicial() {
   }
 
   limparInfoSessao();
-
   if (telaInicial) telaInicial.style.display = "flex";
-
-  if (resposta.tem_usuario) {
-    if (telaCriar) telaCriar.style.display = "none";
-    if (telaLogin) telaLogin.style.display = "none";
-    if (appLayout) appLayout.style.display = "none";
-  } else {
-    if (telaInicial) telaInicial.style.display = "none";
-    if (telaCriar) telaCriar.style.display = "flex";
-    if (telaLogin) telaLogin.style.display = "none";
-    if (appLayout) appLayout.style.display = "none";
-  }
+  if (telaLogin) telaLogin.style.display = "none";
+  if (telaCriar) telaCriar.style.display = "none";
+  if (appLayout) appLayout.style.display = "none";
 }
 
 async function criarUsuarioInicial() {
@@ -146,27 +199,42 @@ async function criarUsuarioInicial() {
   const senha = document.getElementById("novaSenha")?.value || "";
 
   if (!usuario.trim() || !senha.trim()) {
-    alert("Usuário e senha são obrigatórios.");
+    notificar("Usuário e senha são obrigatórios.", "alerta");
     return;
   }
 
   const resp = await apiPost("/api/criar-usuario", { usuario, senha });
-  alert(resp.mensagem);
 
-  if (resp.ok) {
-    document.getElementById("formCriarUsuario")?.reset();
-    voltarInicio();
+  if (!resp.ok) {
+    notificar(resp.mensagem || "Não foi possível criar o usuário.", "erro");
+    return;
   }
+
+  document.getElementById("formCriarUsuario")?.reset();
+
+  document.getElementById("screen-inicial").style.display = "none";
+  document.getElementById("screen-login").style.display = "none";
+  document.getElementById("screen-criar-usuario").style.display = "none";
+  document.getElementById("appLayout").style.display = "flex";
+
+  atualizarInfoSessao(resp.usuario || usuario, !!resp.is_admin);
+  notificar("Conta criada com sucesso.", "sucesso");
+  await carregarDashboard();
 }
 
 async function fazerLogin() {
   const usuario = document.getElementById("loginUsuario")?.value || "";
   const senha = document.getElementById("loginSenha")?.value || "";
 
+  if (!usuario.trim() || !senha.trim()) {
+    notificar("Informe usuário e senha.", "alerta");
+    return;
+  }
+
   const resposta = await apiPost("/api/login", { usuario, senha });
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem || "Usuário ou senha inválidos.", "erro");
     return;
   }
 
@@ -178,6 +246,7 @@ async function fazerLogin() {
   document.getElementById("formLogin")?.reset();
 
   atualizarInfoSessao(resposta.usuario || "", !!resposta.is_admin);
+  notificar("Login realizado com sucesso.", "sucesso");
   await carregarDashboard();
 }
 
@@ -185,8 +254,28 @@ async function sairSistema() {
   await apiPost("/api/logout");
   document.getElementById("appLayout").style.display = "none";
   document.getElementById("screen-criar-usuario").style.display = "none";
-  document.getElementById("screen-login").style.display = "flex";
+  document.getElementById("screen-inicial").style.display = "flex";
+  document.getElementById("screen-login").style.display = "none";
   limparInfoSessao();
+  notificar("Você saiu do sistema.", "info");
+}
+
+function abrirLogin() {
+  document.getElementById("screen-inicial").style.display = "none";
+  document.getElementById("screen-criar-usuario").style.display = "none";
+  document.getElementById("screen-login").style.display = "flex";
+}
+
+function abrirCriarUsuario() {
+  document.getElementById("screen-inicial").style.display = "none";
+  document.getElementById("screen-login").style.display = "none";
+  document.getElementById("screen-criar-usuario").style.display = "flex";
+}
+
+function voltarInicio() {
+  document.getElementById("screen-login").style.display = "none";
+  document.getElementById("screen-criar-usuario").style.display = "none";
+  document.getElementById("screen-inicial").style.display = "flex";
 }
 
 function renderizarResumo(dados) {
@@ -220,11 +309,14 @@ function renderizarGraficoStatus(dados) {
         borderWidth: 0
       }]
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false
-    }
+    options: { responsive: true, maintainAspectRatio: false }
   });
+}
+
+async function carregarDashboard() {
+  const dados = await apiGet("/api/dashboard-completo");
+  renderizarResumo(dados.resumo || {});
+  renderizarGraficoStatus(dados.grafico || []);
 }
 
 async function carregarResumo() {
@@ -235,12 +327,6 @@ async function carregarResumo() {
 async function carregarGraficoStatus() {
   const dados = await apiGet("/api/dados-grafico-dashboard");
   renderizarGraficoStatus(dados);
-}
-
-async function carregarDashboard() {
-  const dados = await apiGet("/api/dashboard-completo");
-  renderizarResumo(dados.resumo);
-  renderizarGraficoStatus(dados.grafico);
 }
 
 async function carregarClientes() {
@@ -295,7 +381,7 @@ async function adicionarCliente() {
   const resposta = await apiPost("/api/clientes", { nome, telefone, cpf, endereco, data_contratacao });
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
@@ -305,6 +391,7 @@ async function adicionarCliente() {
   document.getElementById("novoEndereco").value = "";
   document.getElementById("novaDataContratacao").value = "";
 
+  notificar(resposta.mensagem || "Cliente cadastrado.", "sucesso");
   await carregarClientes();
   await carregarDashboard();
 }
@@ -313,7 +400,7 @@ async function abrirEdicaoCliente(clienteId) {
   const resposta = await apiGet(`/api/clientes/${clienteId}`);
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
@@ -343,11 +430,11 @@ async function salvarEdicaoCliente() {
   });
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
-  alert(resposta.mensagem);
+  notificar(resposta.mensagem, "sucesso");
   document.getElementById("painelEditarCliente").style.display = "none";
   await carregarClientes();
   await carregarDashboard();
@@ -402,7 +489,7 @@ async function adicionarEmprestimo() {
   const resposta = await apiPost("/api/emprestimos", { cliente_id, valor, data_inicio, taxa });
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
@@ -411,6 +498,7 @@ async function adicionarEmprestimo() {
   document.getElementById("emprestimoData").value = "";
   document.getElementById("emprestimoTaxa").value = "30";
 
+  notificar(resposta.mensagem || "Empréstimo criado.", "sucesso");
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -423,11 +511,11 @@ async function confirmarQuitado(id) {
   const resposta = await apiPost(`/api/emprestimos/${id}/quitar`);
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
-  alert(resposta.mensagem);
+  notificar(resposta.mensagem, "sucesso");
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -440,11 +528,11 @@ async function confirmarJuros(id) {
   const resposta = await apiPost(`/api/emprestimos/${id}/pagar-juros`);
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
-  alert(resposta.mensagem);
+  notificar(resposta.mensagem, "sucesso");
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -452,18 +540,17 @@ async function confirmarJuros(id) {
 
 async function alterarTaxaEmprestimo(id, taxaAtual) {
   const novaTaxa = Number(taxaAtual) === 20 ? 30 : 20;
-
   const ok = confirm(`Deseja trocar a taxa para ${novaTaxa}%?`);
   if (!ok) return;
 
   const resposta = await apiPost(`/api/emprestimos/${id}/trocar-taxa`, { nova_taxa: novaTaxa });
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
-  alert(resposta.mensagem);
+  notificar(resposta.mensagem, "sucesso");
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -525,16 +612,11 @@ async function adicionarVenda() {
   const observacao = document.getElementById("vendaObservacao")?.value || "";
 
   const resposta = await apiPost("/api/vendas", {
-    produto,
-    cliente,
-    valor_venda,
-    valor_custo,
-    data_venda,
-    observacao
+    produto, cliente, valor_venda, valor_custo, data_venda, observacao
   });
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
@@ -545,8 +627,7 @@ async function adicionarVenda() {
   document.getElementById("vendaData").value = "";
   document.getElementById("vendaObservacao").value = "";
 
-  alert(resposta.mensagem);
-
+  notificar(resposta.mensagem, "sucesso");
   await carregarVendas();
   await carregarResumoVendas();
   await carregarDashboard();
@@ -557,7 +638,7 @@ async function abrirEdicaoVenda(id) {
   const resposta = await apiGet(`/api/vendas/${id}`);
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
@@ -587,20 +668,15 @@ async function salvarEdicaoVenda() {
   const observacao = document.getElementById("editarVendaObservacao")?.value || "";
 
   const resposta = await apiPut(`/api/vendas/${id}`, {
-    produto,
-    cliente,
-    valor_venda,
-    valor_custo,
-    data_venda,
-    observacao
+    produto, cliente, valor_venda, valor_custo, data_venda, observacao
   });
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
-  alert(resposta.mensagem);
+  notificar(resposta.mensagem, "sucesso");
   fecharEdicaoVenda();
   await carregarVendas();
   await carregarResumoVendas();
@@ -609,18 +685,17 @@ async function salvarEdicaoVenda() {
 }
 
 async function excluirVenda(id) {
-  const ok = confirm("Deseja excluir esta venda? Essa ação corrige os relatórios automaticamente.");
+  const ok = confirm("Deseja excluir esta venda?");
   if (!ok) return;
 
   const resposta = await apiDelete(`/api/vendas/${id}`);
 
   if (!resposta.ok) {
-    alert(resposta.mensagem);
+    notificar(resposta.mensagem, "erro");
     return;
   }
 
-  alert(resposta.mensagem);
-
+  notificar(resposta.mensagem, "sucesso");
   await carregarVendas();
   await carregarResumoVendas();
   await carregarDashboard();
@@ -713,7 +788,7 @@ function renderizarHistoricoQuitados(quitados) {
       <td>${item.taxa}%</td>
       <td>${formatarMoeda(item.juros)}</td>
       <td>${formatarMoeda(item.total)}</td>
-      <td>${escaparHtml(item.data_quitacao)}</td>
+      <td>${escaparHtml(item.data_quitacao || "-")}</td>
     `;
     tabela.appendChild(tr);
   });
@@ -738,7 +813,7 @@ function renderizarHistoricoVendas(vendas) {
       <td>${formatarMoeda(item.valor_venda)}</td>
       <td>${formatarMoeda(item.valor_custo)}</td>
       <td>${formatarMoeda(item.lucro)}</td>
-      <td>${escaparHtml(item.data_venda)}</td>
+      <td>${escaparHtml(item.data_venda || "-")}</td>
       <td><button class="action-btn" onclick="baixarReciboVenda(${item.id})">PDF</button></td>
     `;
     tabela.appendChild(tr);
@@ -755,17 +830,15 @@ async function carregarRelatorios() {
   if (document.getElementById("relTotalEmAberto")) document.getElementById("relTotalEmAberto").innerText = formatarMoeda(rel.total_em_aberto);
   if (document.getElementById("relLucro20")) document.getElementById("relLucro20").innerText = formatarMoeda(rel.lucro_20);
   if (document.getElementById("relLucro30")) document.getElementById("relLucro30").innerText = formatarMoeda(rel.lucro_30);
-
   if (document.getElementById("relLucroEmprestimos")) document.getElementById("relLucroEmprestimos").innerText = formatarMoeda(rel.lucro_emprestimos);
   if (document.getElementById("relLucroVendas")) document.getElementById("relLucroVendas").innerText = formatarMoeda(rel.lucro_vendas);
   if (document.getElementById("relLucroGeral")) document.getElementById("relLucroGeral").innerText = formatarMoeda(rel.lucro_geral);
-  if (document.getElementById("relTotalVendas")) document.getElementById("relTotalVendas").innerText = formatarMoeda(rel.total_vendas);
-  if (document.getElementById("relCustoVendas")) document.getElementById("relCustoVendas").innerText = formatarMoeda(rel.custo_vendas);
-
+  if (document.getElementById("relTotalVendas")) document.getElementById("relTotalVendas").innerText = formatarMoeda(rel.total_vendido ?? rel.total_vendas);
   if (document.getElementById("relLucroEmprestimosSemanal")) document.getElementById("relLucroEmprestimosSemanal").innerText = formatarMoeda(rel.lucro_emprestimos_semanal);
   if (document.getElementById("relLucroVendasSemanal")) document.getElementById("relLucroVendasSemanal").innerText = formatarMoeda(rel.lucro_vendas_semanal);
-  if (document.getElementById("relLucroSemanal")) document.getElementById("relLucroSemanal").innerText = formatarMoeda(rel.lucro_semanal_geral ?? rel.lucro_semanal);
-  if (document.getElementById("relLucroMensal")) document.getElementById("relLucroMensal").innerText = formatarMoeda(rel.lucro_mensal_geral ?? rel.lucro_mensal);
+  if (document.getElementById("relLucroSemanal")) document.getElementById("relLucroSemanal").innerText = formatarMoeda(rel.lucro_semanal_geral);
+  if (document.getElementById("relLucroMensal")) document.getElementById("relLucroMensal").innerText = formatarMoeda(rel.lucro_mensal_geral);
+  if (document.getElementById("relCustoVendas")) document.getElementById("relCustoVendas").innerText = formatarMoeda(rel.custo_vendas);
 }
 
 function gerarPdf() {
@@ -801,32 +874,95 @@ function configurarFormsAuth() {
 }
 
 function configurarEnterCadastros() {
-  const ids = [
-    "novoNome", "novoTelefone", "novoCpf", "novoEndereco", "novaDataContratacao",
-    "emprestimoCliente", "emprestimoValor", "emprestimoData", "emprestimoTaxa",
-    "vendaProduto", "vendaCliente", "vendaValor", "vendaCusto", "vendaData", "vendaObservacao", "editarVendaProduto", "editarVendaCliente", "editarVendaValor", "editarVendaCusto", "editarVendaData", "editarVendaObservacao"
+  const camposCliente = [
+    document.getElementById("novoNome"),
+    document.getElementById("novoTelefone"),
+    document.getElementById("novoCpf"),
+    document.getElementById("novoEndereco"),
+    document.getElementById("novaDataContratacao")
   ];
 
-  ids.forEach(id => {
-    const input = document.getElementById(id);
+  camposCliente.forEach(input => {
     if (input) {
       input.addEventListener("keydown", event => {
         if (event.key === "Enter") {
           event.preventDefault();
-
-          if (id.startsWith("editarVenda")) {
-            salvarEdicaoVenda();
-          } else if (id.startsWith("venda")) {
-            adicionarVenda();
-          } else if (id.startsWith("emprestimo")) {
-            adicionarEmprestimo();
-          } else {
-            adicionarCliente();
-          }
+          adicionarCliente();
         }
       });
     }
   });
+
+  const camposEmprestimo = [
+    document.getElementById("emprestimoCliente"),
+    document.getElementById("emprestimoValor"),
+    document.getElementById("emprestimoData"),
+    document.getElementById("emprestimoTaxa")
+  ];
+
+  camposEmprestimo.forEach(input => {
+    if (input) {
+      input.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          adicionarEmprestimo();
+        }
+      });
+    }
+  });
+}
+
+async function carregarLogsAdmin() {
+  const area = document.getElementById("adminLogsResultado");
+  if (!area) return;
+
+  area.innerHTML = "Carregando logs...";
+
+  const resposta = await apiGet("/api/admin/logs");
+
+  if (!resposta.ok) {
+    area.innerHTML = `<div class="admin-alert error">${escaparHtml(resposta.mensagem)}</div>`;
+    return;
+  }
+
+  if (!resposta.logs || !resposta.logs.length) {
+    area.innerHTML = `<div class="admin-box-info">Nenhum log encontrado.</div>`;
+    return;
+  }
+
+  let html = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Usuário</th>
+            <th>Ação</th>
+            <th>SQL</th>
+            <th>Detalhes</th>
+            <th>Data/Hora</th>
+            <th>IP</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  resposta.logs.forEach(item => {
+    html += `
+      <tr>
+        <td>${escaparHtml(item.id)}</td>
+        <td>${escaparHtml(item.usuario)}</td>
+        <td>${escaparHtml(item.acao)}</td>
+        <td>${escaparHtml(item.sql_texto)}</td>
+        <td>${escaparHtml(item.detalhes)}</td>
+        <td>${escaparHtml(item.data_hora)}</td>
+        <td>${escaparHtml(item.ip)}</td>
+      </tr>
+    `;
+  });
+
+  html += `</tbody></table></div>`;
+  area.innerHTML = html;
 }
 
 async function carregarTabelasAdmin() {
@@ -838,37 +974,31 @@ async function carregarTabelasAdmin() {
   lista.innerHTML = "<option value=''>Carregando...</option>";
   if (mensagem) mensagem.innerHTML = "";
 
-  try {
-    const resposta = await apiGet("/api/admin/tabelas");
+  const resposta = await apiGet("/api/admin/tabelas");
 
-    if (!resposta.ok) {
-      lista.innerHTML = "<option value=''>Falha ao carregar</option>";
-      if (mensagem) mensagem.innerHTML = `<div class="admin-alert error">${escaparHtml(resposta.mensagem || "Erro ao carregar tabelas.")}</div>`;
-      return;
-    }
+  if (!resposta.ok) {
+    lista.innerHTML = "<option value=''>Falha ao carregar</option>";
+    if (mensagem) mensagem.innerHTML = `<div class="admin-alert error">${escaparHtml(resposta.mensagem)}</div>`;
+    return;
+  }
 
-    lista.innerHTML = "<option value=''>Selecione uma tabela</option>";
+  lista.innerHTML = "<option value=''>Selecione uma tabela</option>";
 
-    resposta.tabelas.forEach(tabela => {
-      const option = document.createElement("option");
-      option.value = tabela;
-      option.textContent = tabela;
-      lista.appendChild(option);
-    });
+  resposta.tabelas.forEach(tabela => {
+    const option = document.createElement("option");
+    option.value = tabela;
+    option.textContent = tabela;
+    lista.appendChild(option);
+  });
 
-    if (mensagem) {
-      mensagem.innerHTML = `<div class="admin-alert success">Tabelas carregadas com sucesso.<br>Banco usado: ${escaparHtml(resposta.banco || "-")}</div>`;
-    }
-  } catch (erro) {
-    lista.innerHTML = "<option value=''>Erro na requisição</option>";
-    if (mensagem) mensagem.innerHTML = `<div class="admin-alert error">${escaparHtml(erro.message || "Erro inesperado.")}</div>`;
+  if (mensagem) {
+    mensagem.innerHTML = `<div class="admin-alert success">Tabelas carregadas com sucesso.<br>Banco usado: ${escaparHtml(resposta.banco || "-")}</div>`;
   }
 }
 
 function usarTabelaAdmin() {
   const tabela = document.getElementById("adminListaTabelas")?.value || "";
   const sql = document.getElementById("adminSql");
-
   if (!tabela || !sql) return;
   sql.value = `SELECT * FROM ${tabela} LIMIT 100;`;
 }
@@ -879,12 +1009,23 @@ async function executarSqlAdmin() {
   const resultado = document.getElementById("adminResultado");
 
   if (!sql.trim()) {
-    alert("Digite um SQL.");
+    notificar("Digite um SQL.", "alerta");
     return;
   }
 
-  const confirmar = confirm("Deseja executar este SQL?");
-  if (!confirmar) return;
+  const sqlLower = sql.trim().toLowerCase();
+  const ehComandoPerigoso =
+    sqlLower.startsWith("update") ||
+    sqlLower.startsWith("delete") ||
+    sqlLower.startsWith("insert") ||
+    sqlLower.startsWith("alter") ||
+    sqlLower.startsWith("create") ||
+    sqlLower.startsWith("drop");
+
+  if (ehComandoPerigoso) {
+    const confirmar = confirm("Esse comando altera dados. Deseja continuar?");
+    if (!confirmar) return;
+  }
 
   if (mensagem) mensagem.innerHTML = "Executando...";
   if (resultado) resultado.innerHTML = "";
@@ -896,9 +1037,7 @@ async function executarSqlAdmin() {
     return;
   }
 
-  if (mensagem) {
-    mensagem.innerHTML = `<div class="admin-alert success">${escaparHtml(resposta.mensagem || "Executado com sucesso.")}</div>`;
-  }
+  if (mensagem) mensagem.innerHTML = `<div class="admin-alert success">${escaparHtml(resposta.mensagem || "Executado com sucesso.")}</div>`;
 
   if (resposta.tipo === "consulta") {
     renderizarResultadoAdmin(resposta.colunas || [], resposta.linhas || []);
@@ -906,8 +1045,6 @@ async function executarSqlAdmin() {
     if (resultado) {
       resultado.innerHTML = `<div class="admin-box-info"><strong>Comando executado.</strong><br>Linhas afetadas: ${Number(resposta.linhas_afetadas ?? 0)}</div>`;
     }
-
-    await carregarDashboard();
     await carregarLogsAdmin();
   }
 }
@@ -915,6 +1052,11 @@ async function executarSqlAdmin() {
 function renderizarResultadoAdmin(colunas, linhas) {
   const resultado = document.getElementById("adminResultado");
   if (!resultado) return;
+
+  if (!colunas.length) {
+    resultado.innerHTML = `<div class="admin-box-info">Consulta executada sem colunas para exibir.</div>`;
+    return;
+  }
 
   let html = `<div class="table-wrap"><table><thead><tr>`;
   colunas.forEach(coluna => html += `<th>${escaparHtml(coluna)}</th>`);
@@ -939,51 +1081,9 @@ function preencherExemploAdmin(tipo) {
   if (!sql) return;
 
   if (tipo === "clientes") sql.value = "SELECT * FROM clientes ORDER BY id DESC LIMIT 50;";
-  if (tipo === "emprestimos") sql.value = "SELECT * FROM emprestimos ORDER BY id DESC LIMIT 50;";
-  if (tipo === "pagamentos") sql.value = "SELECT * FROM pagamentos ORDER BY id DESC LIMIT 50;";
-  if (tipo === "vendas") sql.value = "SELECT * FROM vendas ORDER BY id DESC LIMIT 50;";
-}
-
-async function carregarLogsAdmin() {
-  const area = document.getElementById("adminLogsResultado");
-  if (!area) return;
-
-  area.innerHTML = "Carregando logs...";
-
-  const resposta = await apiGet("/api/admin/logs");
-
-  if (!resposta.ok) {
-    area.innerHTML = `<div class="admin-alert error">${escaparHtml(resposta.mensagem)}</div>`;
-    return;
-  }
-
-  if (!resposta.logs || !resposta.logs.length) {
-    area.innerHTML = `<div class="admin-box-info">Nenhum log encontrado.</div>`;
-    return;
-  }
-
-  let html = `<div class="table-wrap"><table><thead><tr>
-    <th>ID</th><th>Usuário</th><th>Ação</th><th>SQL</th><th>Detalhes</th><th>Data/Hora</th><th>IP</th>
-  </tr></thead><tbody>`;
-
-  resposta.logs.forEach(item => {
-    html += `<tr>
-      <td>${escaparHtml(item.id)}</td>
-      <td>${escaparHtml(item.usuario)}</td>
-      <td>${escaparHtml(item.acao)}</td>
-      <td>${escaparHtml(item.sql_texto)}</td>
-      <td>${escaparHtml(item.detalhes)}</td>
-      <td>${escaparHtml(item.data_hora)}</td>
-      <td>${escaparHtml(item.ip)}</td>
-    </tr>`;
-  });
-
-  html += `</tbody></table></div>`;
-  area.innerHTML = html;
-}
-
-async function atualizarTudo() {
-  await carregarDashboard();
+  else if (tipo === "emprestimos") sql.value = "SELECT * FROM emprestimos ORDER BY id DESC LIMIT 50;";
+  else if (tipo === "pagamentos") sql.value = "SELECT * FROM pagamentos ORDER BY id DESC LIMIT 50;";
+  else if (tipo === "vendas") sql.value = "SELECT * FROM vendas ORDER BY id DESC LIMIT 50;";
 }
 
 async function iniciarSistema() {
@@ -996,25 +1096,3 @@ async function iniciarSistema() {
 document.addEventListener("DOMContentLoaded", () => {
   iniciarSistema();
 });
-
-function abrirLogin() {
-  document.getElementById("screen-inicial").style.display = "none";
-  document.getElementById("screen-criar-usuario").style.display = "none";
-  document.getElementById("screen-login").style.display = "flex";
-}
-
-function abrirCriarUsuario() {
-  document.getElementById("screen-inicial").style.display = "none";
-  document.getElementById("screen-login").style.display = "none";
-  document.getElementById("screen-criar-usuario").style.display = "flex";
-}
-
-function voltarInicio() {
-  document.getElementById("screen-login").style.display = "none";
-  document.getElementById("screen-criar-usuario").style.display = "none";
-  document.getElementById("screen-inicial").style.display = "flex";
-}
-
-function fazerBackupBanco() {
-  window.open("/api/backup-banco", "_blank");
-}
