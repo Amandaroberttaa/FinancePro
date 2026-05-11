@@ -568,40 +568,7 @@ th{
   }
 }
 
-/* Atualização em tempo real / Caixa diário */
-.caixa-diario-grid {
-  margin-top: 20px;
-}
-
-.caixa-card {
-  border: 1px solid rgba(0, 200, 83, 0.18);
-}
-
-.status-sistema-card {
-  margin-top: 18px;
-  margin-bottom: 18px;
-  padding: 14px 18px;
-  border-radius: 14px;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.status-sistema-card small {
-  color: rgba(255, 255, 255, 0.72);
-  margin-left: auto;
-}
-
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #00c853;
-  box-shadow: 0 0 10px rgba(0, 200, 83, 0.9);
-}
+/* ---------------- FILTRO POR DATA ---------------- */
 
 .filter-card {
   margin-top: 20px;
@@ -622,16 +589,12 @@ th{
 .filter-grid button {
   height: 46px;
   margin: 0;
+  width: 100%;
 }
 
 @media (max-width: 900px) {
   .filter-grid {
     grid-template-columns: 1fr 1fr;
-  }
-
-  .status-sistema-card small {
-    width: 100%;
-    margin-left: 20px;
   }
 }
 

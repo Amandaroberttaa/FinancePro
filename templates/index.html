@@ -40,11 +40,10 @@
     </div>
   </section>
 
-
   <section id="screen-login" class="auth-screen" style="display:none;">
     <div class="auth-card">
-      <h1>Entrar</h1>
-      <p>Informe seu usuário e senha para acessar o sistema</p>
+      <h1>Entrar no sistema</h1>
+      <p>Informe seu usuário e senha</p>
 
       <form id="formLogin">
         <input type="text" id="loginUsuario" placeholder="Usuário" autocomplete="username">
@@ -55,7 +54,6 @@
       </form>
     </div>
   </section>
-
 
   <div class="layout" id="appLayout" style="display:none;">
 
@@ -80,6 +78,7 @@
           <button class="nav-item" data-screen="emprestimos">Empréstimos</button>
           <button class="nav-item" data-screen="vendas">Vendas</button>
           <button class="nav-item" data-screen="relatorios">Relatórios</button>
+          <button class="nav-item" data-screen="historico">Histórico</button>
           <button class="nav-item admin-nav-item" id="navAdmin" data-screen="admin" style="display:none;">Admin SQL</button>
         </nav>
       </div>
@@ -152,34 +151,6 @@
             <strong id="totalClientes">0</strong>
           </div>
         </section>
-
-        <section class="hero-grid rel-grid caixa-diario-grid">
-          <div class="hero-card caixa-card">
-            <span>Caixa de hoje</span>
-            <strong id="caixaEntradasHoje">R$ 0,00</strong>
-          </div>
-
-          <div class="hero-card caixa-card">
-            <span>Lucro de hoje</span>
-            <strong id="caixaLucroHoje">R$ 0,00</strong>
-          </div>
-
-          <div class="hero-card caixa-card">
-            <span>Recebido em empréstimos hoje</span>
-            <strong id="caixaEmprestimosHoje">R$ 0,00</strong>
-          </div>
-
-          <div class="hero-card caixa-card">
-            <span>Vendas de hoje</span>
-            <strong id="caixaVendasHoje">R$ 0,00</strong>
-          </div>
-        </section>
-
-        <div class="status-sistema-card" id="statusAtualizacao">
-          <span class="status-dot"></span>
-          <strong>Sistema em tempo real</strong>
-          <small id="ultimaAtualizacao">Aguardando atualização...</small>
-        </div>
 
         <section class="chart-card">
           <h3>Status geral</h3>
@@ -310,6 +281,23 @@
           </div>
         </div>
 
+
+
+        <div class="panel-card" id="painelEditarVenda" style="display:none; margin-top:20px;">
+          <h3>Editar venda</h3>
+          <input type="hidden" id="editarVendaId">
+          <input type="text" id="editarVendaProduto" placeholder="Produto vendido">
+          <input type="text" id="editarVendaCliente" placeholder="Cliente (opcional)">
+          <input type="number" id="editarVendaValor" placeholder="Valor de venda">
+          <input type="number" id="editarVendaCusto" placeholder="Valor de custo">
+          <input type="text" id="editarVendaData" placeholder="Data da venda (dd/mm/aaaa)">
+          <input type="text" id="editarVendaObservacao" placeholder="Observação">
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="button" class="primary-btn admin-inline-btn" onclick="salvarEdicaoVenda()">Salvar venda</button>
+            <button type="button" class="secondary-btn admin-inline-btn" onclick="fecharEdicaoVenda()">Cancelar</button>
+          </div>
+        </div>
+
         <div class="panel-card" style="margin-top:20px;">
           <h3>Lista de vendas</h3>
           <div class="table-wrap">
@@ -436,6 +424,96 @@
         <div class="panel-card" style="margin-top:20px;">
           <h3>Exportação</h3>
           <button type="button" class="primary-btn" onclick="gerarPdf()">Gerar PDF</button>
+        </div>
+      </section>
+
+
+
+      <section id="screen-historico" class="screen">
+        <header class="topbar">
+          <div>
+            <h1>Histórico financeiro</h1>
+            <p>Consulte vendas, pagamentos e empréstimos quitados por período</p>
+          </div>
+        </header>
+
+        <div class="panel-card filter-card">
+          <h3>Filtro por data</h3>
+
+          <div class="filter-grid">
+            <input type="text" id="histInicio" placeholder="Data inicial (dd/mm/aaaa)">
+            <input type="text" id="histFim" placeholder="Data final (dd/mm/aaaa)">
+            <button type="button" class="primary-btn" onclick="carregarHistoricos()">Filtrar histórico</button>
+            <button type="button" class="secondary-btn" onclick="limparFiltroHistorico()">Limpar filtro</button>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <h3>Pagamentos recebidos</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Empréstimo</th>
+                  <th>Cliente</th>
+                  <th>Valor pago</th>
+                  <th>Lucro</th>
+                  <th>Tipo</th>
+                  <th>Data</th>
+                  <th>Recibo</th>
+                </tr>
+              </thead>
+              <tbody id="tabelaHistoricoPagamentos">
+                <tr><td colspan="8">Nenhum pagamento encontrado.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <h3>Empréstimos quitados</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Cliente</th>
+                  <th>Valor</th>
+                  <th>Taxa</th>
+                  <th>Juros</th>
+                  <th>Total</th>
+                  <th>Quitação</th>
+                </tr>
+              </thead>
+              <tbody id="tabelaHistoricoQuitados">
+                <tr><td colspan="7">Nenhum empréstimo quitado encontrado.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <h3>Vendas realizadas</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Produto</th>
+                  <th>Cliente</th>
+                  <th>Venda</th>
+                  <th>Custo</th>
+                  <th>Lucro</th>
+                  <th>Data</th>
+                  <th>Recibo</th>
+                </tr>
+              </thead>
+              <tbody id="tabelaHistoricoVendas">
+                <tr><td colspan="8">Nenhuma venda encontrada.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 

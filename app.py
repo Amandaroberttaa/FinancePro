@@ -1,6 +1,13 @@
 import os
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
+import tempfile
+
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
 
 from flask import Flask, render_template, request, jsonify, send_file, session
 
@@ -24,12 +31,6 @@ app = Flask(
 
 app.secret_key = os.environ.get("FINANCEPRO_SECRET_KEY", "financepro_secret_2026_admin")
 
-app.config.update(
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.environ.get("VERCEL") == "1",
-    PERMANENT_SESSION_LIFETIME=timedelta(days=7)
-)
 criar_tabelas()
 
 ADMIN_USUARIO = "ADM"
@@ -90,6 +91,65 @@ def lucro_emprestimos_sql():
             ELSE 0
         END), 0)
     """
+
+
+
+
+def moeda(valor):
+    return f"R$ {float(valor or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def normalizar_data(valor):
+    valor = (str(valor or "").strip())
+    if not valor:
+        return datetime.now().strftime("%d/%m/%Y")
+    try:
+        datetime.strptime(valor, "%d/%m/%Y")
+        return valor
+    except Exception:
+        raise ValueError("Data inválida. Use dd/mm/aaaa.")
+
+
+def filtro_periodo_sql(campo, inicio, fim):
+    condicoes = [f"{campo} ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'"]
+    params = []
+
+    if inicio:
+        normalizar_data(inicio)
+        condicoes.append(f"TO_DATE({campo}, 'DD/MM/YYYY') >= TO_DATE(%s, 'DD/MM/YYYY')")
+        params.append(inicio)
+
+    if fim:
+        normalizar_data(fim)
+        condicoes.append(f"TO_DATE({campo}, 'DD/MM/YYYY') <= TO_DATE(%s, 'DD/MM/YYYY')")
+        params.append(fim)
+
+    return " AND ".join(condicoes), params
+
+
+def gerar_recibo_pdf(titulo, linhas, nome_base):
+    pasta = Path(tempfile.gettempdir())
+    arquivo = pasta / f"{nome_base}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.pdf"
+
+    doc = SimpleDocTemplate(str(arquivo), pagesize=A4, rightMargin=32, leftMargin=32, topMargin=32, bottomMargin=32)
+    styles = getSampleStyleSheet()
+    elementos = [Paragraph(titulo, styles["Title"]), Spacer(1, 16)]
+    dados = [["Campo", "Informação"]]
+    for chave, valor in linhas:
+        dados.append([str(chave), str(valor)])
+    tabela = Table(dados, colWidths=[160, 330])
+    tabela.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EAEAEA")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CCCCCC")),
+        ("PADDING", (0, 0), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    elementos.append(tabela)
+    elementos.append(Spacer(1, 18))
+    elementos.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]))
+    doc.build(elementos)
+    return str(arquivo)
 
 
 def criar_tabelas_admin_log():
@@ -227,30 +287,14 @@ def criar_usuario():
 
 @app.route("/api/login", methods=["POST"])
 def login():
-
-    session.permanent = True
-
     dados = request.get_json() or {}
-
     usuario = (dados.get("usuario") or "").strip()
     senha = (dados.get("senha") or "").strip()
 
-    if not usuario or not senha:
-        return jsonify({
-            "ok": False,
-            "mensagem": "Informe usuário e senha."
-        })
-
     if usuario.upper() == ADMIN_USUARIO and senha == ADMIN_SENHA:
-
         session["usuario"] = ADMIN_USUARIO
         session["is_admin"] = True
-
-        registrar_log_admin(
-            "LOGIN_ADMIN",
-            "",
-            "Administrador entrou no sistema"
-        )
+        registrar_log_admin("LOGIN_ADMIN", "", "Administrador entrou no sistema")
 
         return jsonify({
             "ok": True,
@@ -262,52 +306,29 @@ def login():
     conn = conectar()
     cursor = conn.cursor()
 
-    try:
+    cursor.execute("""
+        SELECT id, usuario
+        FROM usuarios
+        WHERE usuario = %s AND senha = %s
+    """, (usuario, senha))
 
-        cursor.execute("""
-            SELECT id, usuario
-            FROM usuarios
-            WHERE usuario = %s
-              AND senha = %s
-        """, (usuario, senha))
+    linha = cursor.fetchone()
 
-        linha = cursor.fetchone()
+    cursor.close()
+    conn.close()
 
-        if not linha:
-            cursor.close()
-            conn.close()
+    if not linha:
+        return jsonify({"ok": False, "mensagem": "Usuário ou senha inválidos."})
 
-            return jsonify({
-                "ok": False,
-                "mensagem": "Usuário ou senha inválidos."
-            })
+    session["usuario"] = linha[1]
+    session["is_admin"] = False
 
-        session["usuario"] = linha[1]
-        session["is_admin"] = False
-
-        conn.commit()
-
-        cursor.close()
-        conn.close()
-
-        return jsonify({
-            "ok": True,
-            "mensagem": "Login realizado com sucesso.",
-            "is_admin": False,
-            "usuario": linha[1]
-        })
-
-    except Exception as e:
-
-        conn.rollback()
-
-        cursor.close()
-        conn.close()
-
-        return jsonify({
-            "ok": False,
-            "mensagem": str(e)
-        })
+    return jsonify({
+        "ok": True,
+        "mensagem": "Login realizado com sucesso.",
+        "is_admin": False,
+        "usuario": linha[1]
+    })
 
 
 @app.route("/api/logout", methods=["POST"])
@@ -498,9 +519,6 @@ def resumo():
     """)
     lucro_30 = cursor.fetchone()[0] or 0
 
-    cursor.execute("SELECT COUNT(*) FROM clientes")
-    total_clientes = cursor.fetchone()[0] or 0
-
     cursor.close()
     conn.close()
 
@@ -516,7 +534,6 @@ def resumo():
         "total_vendas": total_vendas,
         "total_atraso": round(float(total_atraso), 2),
         "clientes_em_atraso": clientes_em_atraso,
-        "total_clientes": total_clientes,
 
         "total_emprestado": round(float(capital_emprestado_aberto), 2),
         "capital_emprestado_aberto": round(float(capital_emprestado_aberto), 2),
@@ -582,75 +599,10 @@ def dados_grafico_dashboard():
 def dashboard_completo():
     resumo_dados = resumo().get_json()
     grafico_dados = dados_grafico_dashboard().get_json()
-    caixa_dados = caixa_diario().get_json()
 
     return jsonify({
         "resumo": resumo_dados,
-        "grafico": grafico_dados,
-        "caixa": caixa_dados
-    })
-
-
-@app.route("/api/caixa-diario", methods=["GET"])
-def caixa_diario():
-    hoje = datetime.now().strftime("%d/%m/%Y")
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT COALESCE(SUM(valor_pago), 0)
-        FROM pagamentos
-        WHERE data_pagamento = %s
-    """, (hoje,))
-    entradas_emprestimos = cursor.fetchone()[0] or 0
-
-    cursor.execute(f"""
-        SELECT {lucro_emprestimos_sql()}
-        FROM pagamentos p
-        JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE p.data_pagamento = %s
-    """, (hoje,))
-    lucro_emprestimos_dia = cursor.fetchone()[0] or 0
-
-    cursor.execute("""
-        SELECT COALESCE(SUM(valor_venda), 0),
-               COALESCE(SUM(valor_custo), 0),
-               COALESCE(SUM(lucro), 0),
-               COUNT(*)
-        FROM vendas
-        WHERE data_venda = %s
-    """, (hoje,))
-    venda_linha = cursor.fetchone() or (0, 0, 0, 0)
-    entradas_vendas = venda_linha[0] or 0
-    custo_vendas_dia = venda_linha[1] or 0
-    lucro_vendas_dia = venda_linha[2] or 0
-    qtd_vendas_dia = venda_linha[3] or 0
-
-    cursor.execute("""
-        SELECT COUNT(*)
-        FROM pagamentos
-        WHERE data_pagamento = %s
-    """, (hoje,))
-    qtd_pagamentos_dia = cursor.fetchone()[0] or 0
-
-    cursor.close()
-    conn.close()
-
-    entradas_gerais = float(entradas_emprestimos) + float(entradas_vendas)
-    lucro_dia = float(lucro_emprestimos_dia) + float(lucro_vendas_dia)
-
-    return jsonify({
-        "data": hoje,
-        "entradas_gerais": round(entradas_gerais, 2),
-        "entradas_emprestimos": round(float(entradas_emprestimos), 2),
-        "entradas_vendas": round(float(entradas_vendas), 2),
-        "lucro_dia": round(lucro_dia, 2),
-        "lucro_emprestimos_dia": round(float(lucro_emprestimos_dia), 2),
-        "lucro_vendas_dia": round(float(lucro_vendas_dia), 2),
-        "custo_vendas_dia": round(float(custo_vendas_dia), 2),
-        "qtd_vendas_dia": qtd_vendas_dia,
-        "qtd_pagamentos_dia": qtd_pagamentos_dia
+        "grafico": grafico_dados
     })
 
 
@@ -1048,14 +1000,20 @@ def alterar_taxa_emprestimo(emprestimo_id):
 
 @app.route("/api/vendas", methods=["GET"])
 def listar_vendas():
+    inicio = (request.args.get("inicio") or "").strip()
+    fim = (request.args.get("fim") or "").strip()
+
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    where_sql, params = filtro_periodo_sql("data_venda", inicio, fim)
+
+    cursor.execute(f"""
         SELECT id, produto, cliente, valor_venda, valor_custo, lucro, data_venda, observacao
         FROM vendas
+        WHERE {where_sql}
         ORDER BY id DESC
-    """)
+    """, params)
 
     dados = cursor.fetchall()
 
@@ -1089,22 +1047,15 @@ def cadastrar_venda():
     try:
         valor_venda = float(dados.get("valor_venda") or 0)
         valor_custo = float(dados.get("valor_custo") or 0)
-    except Exception:
-        return jsonify({"ok": False, "mensagem": "Valores inválidos."})
+        data_venda = normalizar_data(data_venda)
+    except Exception as e:
+        return jsonify({"ok": False, "mensagem": str(e)})
 
     if not produto:
         return jsonify({"ok": False, "mensagem": "Informe o produto vendido."})
 
     if valor_venda <= 0:
         return jsonify({"ok": False, "mensagem": "Informe o valor da venda."})
-
-    if not data_venda:
-        data_venda = datetime.now().strftime("%d/%m/%Y")
-
-    try:
-        datetime.strptime(data_venda, "%d/%m/%Y")
-    except Exception:
-        return jsonify({"ok": False, "mensagem": "Data inválida. Use dd/mm/aaaa."})
 
     lucro = round(valor_venda - valor_custo, 2)
 
@@ -1124,26 +1075,245 @@ def cadastrar_venda():
     return jsonify({"ok": True, "mensagem": "Venda registrada com sucesso."})
 
 
+@app.route("/api/vendas/<int:venda_id>", methods=["GET"])
+def obter_venda(venda_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, produto, cliente, valor_venda, valor_custo, lucro, data_venda, observacao
+        FROM vendas
+        WHERE id = %s
+    """, (venda_id,))
+    item = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    if not item:
+        return jsonify({"ok": False, "mensagem": "Venda não encontrada."})
+
+    return jsonify({
+        "ok": True,
+        "venda": {
+            "id": item[0],
+            "produto": item[1] or "",
+            "cliente": item[2] or "",
+            "valor_venda": float(item[3] or 0),
+            "valor_custo": float(item[4] or 0),
+            "lucro": float(item[5] or 0),
+            "data_venda": formatar_data_texto(item[6]),
+            "observacao": item[7] or ""
+        }
+    })
+
+
+@app.route("/api/vendas/<int:venda_id>", methods=["PUT"])
+def editar_venda(venda_id):
+    dados = request.get_json() or {}
+
+    produto = (dados.get("produto") or "").strip()
+    cliente = (dados.get("cliente") or "").strip()
+    observacao = (dados.get("observacao") or "").strip()
+    data_venda = (dados.get("data_venda") or "").strip()
+
+    try:
+        valor_venda = float(dados.get("valor_venda") or 0)
+        valor_custo = float(dados.get("valor_custo") or 0)
+        data_venda = normalizar_data(data_venda)
+    except Exception as e:
+        return jsonify({"ok": False, "mensagem": str(e)})
+
+    if not produto:
+        return jsonify({"ok": False, "mensagem": "Informe o produto vendido."})
+
+    if valor_venda <= 0:
+        return jsonify({"ok": False, "mensagem": "Informe o valor da venda."})
+
+    lucro = round(valor_venda - valor_custo, 2)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE vendas
+        SET produto = %s,
+            cliente = %s,
+            valor_venda = %s,
+            valor_custo = %s,
+            lucro = %s,
+            data_venda = %s,
+            observacao = %s
+        WHERE id = %s
+    """, (produto, cliente, valor_venda, valor_custo, lucro, data_venda, observacao, venda_id))
+
+    conn.commit()
+    afetadas = cursor.rowcount
+
+    cursor.close()
+    conn.close()
+
+    if afetadas == 0:
+        return jsonify({"ok": False, "mensagem": "Venda não encontrada."})
+
+    return jsonify({"ok": True, "mensagem": "Venda atualizada com sucesso."})
+
+
 @app.route("/api/vendas/<int:venda_id>", methods=["DELETE"])
 def excluir_venda(venda_id):
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id FROM vendas WHERE id = %s", (venda_id,))
-    venda = cursor.fetchone()
-
-    if not venda:
-        cursor.close()
-        conn.close()
-        return jsonify({"ok": False, "mensagem": "Venda não encontrada."})
-
     cursor.execute("DELETE FROM vendas WHERE id = %s", (venda_id,))
     conn.commit()
+    afetadas = cursor.rowcount
 
     cursor.close()
     conn.close()
 
+    if afetadas == 0:
+        return jsonify({"ok": False, "mensagem": "Venda não encontrada."})
+
     return jsonify({"ok": True, "mensagem": "Venda excluída com sucesso."})
+
+
+@app.route("/api/historico/pagamentos", methods=["GET"])
+def historico_pagamentos():
+    inicio = (request.args.get("inicio") or "").strip()
+    fim = (request.args.get("fim") or "").strip()
+
+    conn = conectar()
+    cursor = conn.cursor()
+    where_sql, params = filtro_periodo_sql("p.data_pagamento", inicio, fim)
+
+    cursor.execute(f"""
+        SELECT p.id, p.emprestimo_id, c.nome, p.valor_pago, p.tipo, p.data_pagamento, e.juros
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        JOIN clientes c ON c.id = e.cliente_id
+        WHERE {where_sql}
+        ORDER BY p.id DESC
+    """, params)
+
+    dados = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return jsonify([
+        {
+            "id": item[0],
+            "emprestimo_id": item[1],
+            "cliente": item[2] or "",
+            "valor_pago": float(item[3] or 0),
+            "tipo": item[4] or "",
+            "data_pagamento": formatar_data_texto(item[5]),
+            "lucro": float(item[3] or 0) if str(item[4]).lower() == "juros" else float(item[6] or 0)
+        }
+        for item in dados
+    ])
+
+
+@app.route("/api/historico/quitados", methods=["GET"])
+def historico_quitados():
+    inicio = (request.args.get("inicio") or "").strip()
+    fim = (request.args.get("fim") or "").strip()
+
+    conn = conectar()
+    cursor = conn.cursor()
+    where_sql, params = filtro_periodo_sql("p.data_pagamento", inicio, fim)
+
+    cursor.execute(f"""
+        SELECT e.id, c.nome, e.valor, e.taxa, e.juros, e.total, e.data_inicio, e.data_vencimento, p.data_pagamento
+        FROM emprestimos e
+        JOIN clientes c ON c.id = e.cliente_id
+        JOIN pagamentos p ON p.emprestimo_id = e.id AND p.tipo = 'total'
+        WHERE LOWER(TRIM(e.status)) = 'quitado'
+          AND {where_sql}
+        ORDER BY p.id DESC
+    """, params)
+
+    dados = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return jsonify([
+        {
+            "id": item[0],
+            "cliente": item[1] or "",
+            "valor": float(item[2] or 0),
+            "taxa": float(item[3] or 0),
+            "juros": float(item[4] or 0),
+            "total": float(item[5] or 0),
+            "data_inicio": formatar_data_texto(item[6]),
+            "vencimento": formatar_data_texto(item[7]),
+            "data_quitacao": formatar_data_texto(item[8]),
+        }
+        for item in dados
+    ])
+
+
+@app.route("/api/recibo/venda/<int:venda_id>", methods=["GET"])
+def recibo_venda(venda_id):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, produto, cliente, valor_venda, valor_custo, lucro, data_venda, observacao
+        FROM vendas
+        WHERE id = %s
+    """, (venda_id,))
+    venda = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not venda:
+        return jsonify({"ok": False, "mensagem": "Venda não encontrada."})
+
+    arquivo = gerar_recibo_pdf("Comprovante de venda", [
+        ("Venda", venda[0]),
+        ("Produto", venda[1] or "-"),
+        ("Cliente", venda[2] or "-"),
+        ("Valor da venda", moeda(venda[3])),
+        ("Custo", moeda(venda[4])),
+        ("Lucro", moeda(venda[5])),
+        ("Data", formatar_data_texto(venda[6])),
+        ("Observação", venda[7] or "-"),
+    ], f"recibo_venda_{venda_id}")
+
+    return send_file(arquivo, as_attachment=True, download_name=f"recibo_venda_{venda_id}.pdf")
+
+
+@app.route("/api/recibo/pagamento/<int:pagamento_id>", methods=["GET"])
+def recibo_pagamento(pagamento_id):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT p.id, p.emprestimo_id, c.nome, p.valor_pago, p.tipo, p.data_pagamento, e.juros, e.total
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        JOIN clientes c ON c.id = e.cliente_id
+        WHERE p.id = %s
+    """, (pagamento_id,))
+    pag = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not pag:
+        return jsonify({"ok": False, "mensagem": "Pagamento não encontrado."})
+
+    tipo = "Pagamento de juros" if str(pag[4]).lower() == "juros" else "Quitação total"
+    lucro = float(pag[3] or 0) if str(pag[4]).lower() == "juros" else float(pag[6] or 0)
+
+    arquivo = gerar_recibo_pdf("Comprovante de pagamento", [
+        ("Pagamento", pag[0]),
+        ("Empréstimo", pag[1]),
+        ("Cliente", pag[2] or "-"),
+        ("Tipo", tipo),
+        ("Valor pago", moeda(pag[3])),
+        ("Lucro considerado", moeda(lucro)),
+        ("Data", formatar_data_texto(pag[5])),
+    ], f"recibo_pagamento_{pagamento_id}")
+
+    return send_file(arquivo, as_attachment=True, download_name=f"recibo_pagamento_{pagamento_id}.pdf")
 
 
 @app.route("/api/relatorio-resumo", methods=["GET"])

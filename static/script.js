@@ -52,54 +52,31 @@ async function apiDelete(url) {
   return await resp.json();
 }
 
-function trocarTela(nomeTela) {
-
-  document.querySelectorAll(".screen").forEach(screen => {
-    screen.classList.remove("active");
-    screen.style.display = "none";
-  });
-
-  document.querySelectorAll(".nav-item").forEach(btn => {
-    btn.classList.remove("active");
-  });
+async function trocarTela(nomeTela) {
+  document.querySelectorAll(".screen").forEach(screen => screen.classList.remove("active"));
+  document.querySelectorAll(".nav-item").forEach(btn => btn.classList.remove("active"));
 
   const tela = document.getElementById(`screen-${nomeTela}`);
-
-  if (tela) {
-    tela.style.display = "block";
-    tela.classList.add("active");
-  }
-
   const botao = document.querySelector(`[data-screen="${nomeTela}"]`);
 
-  if (botao) {
-    botao.classList.add("active");
-  }
+  if (tela) tela.classList.add("active");
+  if (botao && botao.style.display !== "none") botao.classList.add("active");
 
-  if (nomeTela === "dashboard") {
-    carregarDashboard();
-  }
-
-  if (nomeTela === "clientes") {
-    carregarClientes();
-  }
-
+  if (nomeTela === "dashboard") await carregarDashboard();
+  if (nomeTela === "clientes") await carregarClientes();
   if (nomeTela === "emprestimos") {
-    carregarEmprestimos();
+    await carregarClientes();
+    await carregarEmprestimos();
   }
-
   if (nomeTela === "vendas") {
-    carregarVendas();
+    await carregarVendas();
+    await carregarResumoVendas();
   }
-
-  if (nomeTela === "relatorios") {
-    carregarRelatorios();
-  }
-
-  if (nomeTela === "admin") {
-    carregarTabelasAdmin();
-  }
+  if (nomeTela === "relatorios") await carregarRelatorios();
+  if (nomeTela === "historico") await carregarHistoricos();
+  if (nomeTela === "admin") await carregarLogsAdmin();
 }
+
 function classeStatus(status) {
   const valor = String(status || "").toLowerCase();
   if (valor === "aberto") return "status-aberto";
@@ -186,37 +163,22 @@ async function fazerLogin() {
   const usuario = document.getElementById("loginUsuario")?.value || "";
   const senha = document.getElementById("loginSenha")?.value || "";
 
-  if (!usuario.trim() || !senha.trim()) {
-    alert("Informe usuário e senha.");
-    return;
-  }
-
   const resposta = await apiPost("/api/login", { usuario, senha });
 
   if (!resposta.ok) {
-    alert(resposta.mensagem || "Usuário ou senha inválidos.");
+    alert(resposta.mensagem);
     return;
   }
 
-  const telaInicial = document.getElementById("screen-inicial");
-  const telaLogin = document.getElementById("screen-login");
-  const telaCriar = document.getElementById("screen-criar-usuario");
-  const appLayout = document.getElementById("appLayout");
-
-  if (telaInicial) telaInicial.style.display = "none";
-  if (telaLogin) telaLogin.style.display = "none";
-  if (telaCriar) telaCriar.style.display = "none";
-  if (appLayout) appLayout.style.display = "flex";
+  document.getElementById("screen-inicial").style.display = "none";
+  document.getElementById("screen-login").style.display = "none";
+  document.getElementById("screen-criar-usuario").style.display = "none";
+  document.getElementById("appLayout").style.display = "flex";
 
   document.getElementById("formLogin")?.reset();
 
   atualizarInfoSessao(resposta.usuario || "", !!resposta.is_admin);
-
-  try {
-    await carregarDashboard();
-  } catch (erro) {
-    console.error("Erro ao carregar dashboard:", erro);
-  }
+  await carregarDashboard();
 }
 
 async function sairSistema() {
@@ -227,25 +189,21 @@ async function sairSistema() {
   limparInfoSessao();
 }
 
-async function carregarResumo() {
-  const dados = await apiGet("/api/resumo");
-
+function renderizarResumo(dados) {
   if (document.getElementById("totalEmprestado")) document.getElementById("totalEmprestado").innerText = formatarMoeda(dados.total_emprestado);
   if (document.getElementById("totalAberto")) document.getElementById("totalAberto").innerText = formatarMoeda(dados.total_em_aberto);
   if (document.getElementById("lucroTotal")) document.getElementById("lucroTotal").innerText = formatarMoeda(dados.lucro_emprestimos || dados.lucro_total);
-  if (document.getElementById("clientesEmAtraso")) document.getElementById("clientesEmAtraso").innerText = dados.clientes_em_atraso;
+  if (document.getElementById("clientesEmAtraso")) document.getElementById("clientesEmAtraso").innerText = dados.clientes_em_atraso || 0;
   if (document.getElementById("totalClientes")) document.getElementById("totalClientes").innerText = dados.total_clientes || 0;
 
-  if (document.getElementById("dashTotalVendas")) document.getElementById("dashTotalVendas").innerText = formatarMoeda(dados.total_vendas);
+  if (document.getElementById("dashTotalVendas")) document.getElementById("dashTotalVendas").innerText = formatarMoeda(dados.total_vendido || dados.total_vendas);
   if (document.getElementById("dashLucroVendas")) document.getElementById("dashLucroVendas").innerText = formatarMoeda(dados.lucro_vendas);
   if (document.getElementById("dashLucroGeral")) document.getElementById("dashLucroGeral").innerText = formatarMoeda(dados.lucro_geral);
 }
 
-async function carregarGraficoStatus() {
+function renderizarGraficoStatus(dados) {
   const canvas = document.getElementById("graficoStatus");
   if (!canvas || typeof Chart === "undefined") return;
-
-  const dados = await apiGet("/api/dados-grafico-dashboard");
 
   const labels = dados.map(item => item.nome);
   const valores = dados.map(item => item.valor);
@@ -262,13 +220,27 @@ async function carregarGraficoStatus() {
         borderWidth: 0
       }]
     },
-    options: { responsive: true, maintainAspectRatio: false }
+    options: {
+      responsive: true,
+      maintainAspectRatio: false
+    }
   });
 }
 
+async function carregarResumo() {
+  const dados = await apiGet("/api/resumo");
+  renderizarResumo(dados);
+}
+
+async function carregarGraficoStatus() {
+  const dados = await apiGet("/api/dados-grafico-dashboard");
+  renderizarGraficoStatus(dados);
+}
+
 async function carregarDashboard() {
-  await carregarResumo();
-  await carregarGraficoStatus();
+  const dados = await apiGet("/api/dashboard-completo");
+  renderizarResumo(dados.resumo);
+  renderizarGraficoStatus(dados.grafico);
 }
 
 async function carregarClientes() {
@@ -521,7 +493,11 @@ async function carregarVendas() {
       <td>${escaparHtml(venda.data_venda || "-")}</td>
       <td>${escaparHtml(venda.observacao || "-")}</td>
       <td>
-        <button class="action-btn warning" onclick="excluirVenda(${venda.id})">Excluir</button>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="action-btn secondary" onclick="abrirEdicaoVenda(${venda.id})">Editar</button>
+          <button class="action-btn" onclick="baixarReciboVenda(${venda.id})">Recibo</button>
+          <button class="action-btn warning" onclick="excluirVenda(${venda.id})">Excluir</button>
+        </div>
       </td>
     `;
     tabela.appendChild(tr);
@@ -532,7 +508,7 @@ async function carregarResumoVendas() {
   const rel = await apiGet("/api/relatorio-resumo");
 
   if (document.getElementById("vendasTotalVendido")) {
-    document.getElementById("vendasTotalVendido").innerText = formatarMoeda(rel.total_vendas);
+    document.getElementById("vendasTotalVendido").innerText = formatarMoeda(rel.total_vendido ?? rel.total_vendas);
   }
 
   if (document.getElementById("vendasLucro")) {
@@ -577,8 +553,63 @@ async function adicionarVenda() {
   await carregarRelatorios();
 }
 
+async function abrirEdicaoVenda(id) {
+  const resposta = await apiGet(`/api/vendas/${id}`);
+
+  if (!resposta.ok) {
+    alert(resposta.mensagem);
+    return;
+  }
+
+  const venda = resposta.venda;
+  document.getElementById("painelEditarVenda").style.display = "block";
+  document.getElementById("editarVendaId").value = venda.id;
+  document.getElementById("editarVendaProduto").value = venda.produto || "";
+  document.getElementById("editarVendaCliente").value = venda.cliente || "";
+  document.getElementById("editarVendaValor").value = venda.valor_venda || "";
+  document.getElementById("editarVendaCusto").value = venda.valor_custo || "";
+  document.getElementById("editarVendaData").value = venda.data_venda || "";
+  document.getElementById("editarVendaObservacao").value = venda.observacao || "";
+}
+
+function fecharEdicaoVenda() {
+  const painel = document.getElementById("painelEditarVenda");
+  if (painel) painel.style.display = "none";
+}
+
+async function salvarEdicaoVenda() {
+  const id = document.getElementById("editarVendaId")?.value || "";
+  const produto = document.getElementById("editarVendaProduto")?.value || "";
+  const cliente = document.getElementById("editarVendaCliente")?.value || "";
+  const valor_venda = document.getElementById("editarVendaValor")?.value || "";
+  const valor_custo = document.getElementById("editarVendaCusto")?.value || "";
+  const data_venda = document.getElementById("editarVendaData")?.value || "";
+  const observacao = document.getElementById("editarVendaObservacao")?.value || "";
+
+  const resposta = await apiPut(`/api/vendas/${id}`, {
+    produto,
+    cliente,
+    valor_venda,
+    valor_custo,
+    data_venda,
+    observacao
+  });
+
+  if (!resposta.ok) {
+    alert(resposta.mensagem);
+    return;
+  }
+
+  alert(resposta.mensagem);
+  fecharEdicaoVenda();
+  await carregarVendas();
+  await carregarResumoVendas();
+  await carregarDashboard();
+  await carregarRelatorios();
+}
+
 async function excluirVenda(id) {
-  const ok = confirm("Deseja excluir esta venda?");
+  const ok = confirm("Deseja excluir esta venda? Essa ação corrige os relatórios automaticamente.");
   if (!ok) return;
 
   const resposta = await apiDelete(`/api/vendas/${id}`);
@@ -594,6 +625,124 @@ async function excluirVenda(id) {
   await carregarResumoVendas();
   await carregarDashboard();
   await carregarRelatorios();
+}
+
+function baixarReciboVenda(id) {
+  window.open(`/api/recibo/venda/${id}`, "_blank");
+}
+
+function baixarReciboPagamento(id) {
+  window.open(`/api/recibo/pagamento/${id}`, "_blank");
+}
+
+function parametrosHistorico() {
+  const inicio = document.getElementById("histInicio")?.value || "";
+  const fim = document.getElementById("histFim")?.value || "";
+  const params = new URLSearchParams();
+  if (inicio.trim()) params.append("inicio", inicio.trim());
+  if (fim.trim()) params.append("fim", fim.trim());
+  return params.toString();
+}
+
+async function carregarHistoricos() {
+  const query = parametrosHistorico();
+  const sufixo = query ? `?${query}` : "";
+
+  const [pagamentos, quitados, vendas] = await Promise.all([
+    apiGet(`/api/historico/pagamentos${sufixo}`),
+    apiGet(`/api/historico/quitados${sufixo}`),
+    apiGet(`/api/vendas${sufixo}`)
+  ]);
+
+  renderizarHistoricoPagamentos(pagamentos);
+  renderizarHistoricoQuitados(quitados);
+  renderizarHistoricoVendas(vendas);
+}
+
+function limparFiltroHistorico() {
+  const inicio = document.getElementById("histInicio");
+  const fim = document.getElementById("histFim");
+  if (inicio) inicio.value = "";
+  if (fim) fim.value = "";
+  carregarHistoricos();
+}
+
+function renderizarHistoricoPagamentos(pagamentos) {
+  const tabela = document.getElementById("tabelaHistoricoPagamentos");
+  if (!tabela) return;
+
+  if (!pagamentos.length) {
+    tabela.innerHTML = `<tr><td colspan="8">Nenhum pagamento encontrado.</td></tr>`;
+    return;
+  }
+
+  tabela.innerHTML = "";
+  pagamentos.forEach(item => {
+    const tipo = String(item.tipo || "").toLowerCase() === "juros" ? "Juros" : "Quitação";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${item.id}</td>
+      <td>${item.emprestimo_id}</td>
+      <td>${escaparHtml(item.cliente)}</td>
+      <td>${formatarMoeda(item.valor_pago)}</td>
+      <td>${formatarMoeda(item.lucro)}</td>
+      <td>${tipo}</td>
+      <td>${escaparHtml(item.data_pagamento)}</td>
+      <td><button class="action-btn" onclick="baixarReciboPagamento(${item.id})">PDF</button></td>
+    `;
+    tabela.appendChild(tr);
+  });
+}
+
+function renderizarHistoricoQuitados(quitados) {
+  const tabela = document.getElementById("tabelaHistoricoQuitados");
+  if (!tabela) return;
+
+  if (!quitados.length) {
+    tabela.innerHTML = `<tr><td colspan="7">Nenhum empréstimo quitado encontrado.</td></tr>`;
+    return;
+  }
+
+  tabela.innerHTML = "";
+  quitados.forEach(item => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${item.id}</td>
+      <td>${escaparHtml(item.cliente)}</td>
+      <td>${formatarMoeda(item.valor)}</td>
+      <td>${item.taxa}%</td>
+      <td>${formatarMoeda(item.juros)}</td>
+      <td>${formatarMoeda(item.total)}</td>
+      <td>${escaparHtml(item.data_quitacao)}</td>
+    `;
+    tabela.appendChild(tr);
+  });
+}
+
+function renderizarHistoricoVendas(vendas) {
+  const tabela = document.getElementById("tabelaHistoricoVendas");
+  if (!tabela) return;
+
+  if (!vendas.length) {
+    tabela.innerHTML = `<tr><td colspan="8">Nenhuma venda encontrada.</td></tr>`;
+    return;
+  }
+
+  tabela.innerHTML = "";
+  vendas.forEach(item => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${item.id}</td>
+      <td>${escaparHtml(item.produto)}</td>
+      <td>${escaparHtml(item.cliente || "-")}</td>
+      <td>${formatarMoeda(item.valor_venda)}</td>
+      <td>${formatarMoeda(item.valor_custo)}</td>
+      <td>${formatarMoeda(item.lucro)}</td>
+      <td>${escaparHtml(item.data_venda)}</td>
+      <td><button class="action-btn" onclick="baixarReciboVenda(${item.id})">PDF</button></td>
+    `;
+    tabela.appendChild(tr);
+  });
 }
 
 async function carregarRelatorios() {
@@ -615,8 +764,8 @@ async function carregarRelatorios() {
 
   if (document.getElementById("relLucroEmprestimosSemanal")) document.getElementById("relLucroEmprestimosSemanal").innerText = formatarMoeda(rel.lucro_emprestimos_semanal);
   if (document.getElementById("relLucroVendasSemanal")) document.getElementById("relLucroVendasSemanal").innerText = formatarMoeda(rel.lucro_vendas_semanal);
-  if (document.getElementById("relLucroSemanal")) document.getElementById("relLucroSemanal").innerText = formatarMoeda(rel.lucro_semanal);
-  if (document.getElementById("relLucroMensal")) document.getElementById("relLucroMensal").innerText = formatarMoeda(rel.lucro_mensal);
+  if (document.getElementById("relLucroSemanal")) document.getElementById("relLucroSemanal").innerText = formatarMoeda(rel.lucro_semanal_geral ?? rel.lucro_semanal);
+  if (document.getElementById("relLucroMensal")) document.getElementById("relLucroMensal").innerText = formatarMoeda(rel.lucro_mensal_geral ?? rel.lucro_mensal);
 }
 
 function gerarPdf() {
@@ -655,7 +804,7 @@ function configurarEnterCadastros() {
   const ids = [
     "novoNome", "novoTelefone", "novoCpf", "novoEndereco", "novaDataContratacao",
     "emprestimoCliente", "emprestimoValor", "emprestimoData", "emprestimoTaxa",
-    "vendaProduto", "vendaCliente", "vendaValor", "vendaCusto", "vendaData", "vendaObservacao"
+    "vendaProduto", "vendaCliente", "vendaValor", "vendaCusto", "vendaData", "vendaObservacao", "editarVendaProduto", "editarVendaCliente", "editarVendaValor", "editarVendaCusto", "editarVendaData", "editarVendaObservacao"
   ];
 
   ids.forEach(id => {
@@ -665,7 +814,9 @@ function configurarEnterCadastros() {
         if (event.key === "Enter") {
           event.preventDefault();
 
-          if (id.startsWith("venda")) {
+          if (id.startsWith("editarVenda")) {
+            salvarEdicaoVenda();
+          } else if (id.startsWith("venda")) {
             adicionarVenda();
           } else if (id.startsWith("emprestimo")) {
             adicionarEmprestimo();
@@ -867,245 +1018,3 @@ function voltarInicio() {
 function fazerBackupBanco() {
   window.open("/api/backup-banco", "_blank");
 }
-
-
-const financeproCache = {
-  dados: {},
-  duracao: 12000
-};
-
-function limparCacheFinancePro() {
-  financeproCache.dados = {};
-}
-
-async function apiGetCache(url, ttl = financeproCache.duracao) {
-  const agora = Date.now();
-  const item = financeproCache.dados[url];
-
-  if (item && (agora - item.timestamp) < ttl) {
-    return item.valor;
-  }
-
-  const valor = await apiGet(url);
-  financeproCache.dados[url] = { valor, timestamp: agora };
-  return valor;
-}
-
-function atualizarStatusTempoReal() {
-  const ultima = document.getElementById("ultimaAtualizacao");
-  if (!ultima) return;
-
-  const agora = new Date();
-  ultima.textContent = `Última atualização: ${agora.toLocaleTimeString("pt-BR")}`;
-}
-
-function renderizarResumo(dados) {
-  if (!dados) return;
-
-  if (document.getElementById("totalEmprestado")) document.getElementById("totalEmprestado").innerText = formatarMoeda(dados.total_emprestado);
-  if (document.getElementById("totalAberto")) document.getElementById("totalAberto").innerText = formatarMoeda(dados.total_em_aberto);
-  if (document.getElementById("lucroTotal")) document.getElementById("lucroTotal").innerText = formatarMoeda(dados.lucro_emprestimos || dados.lucro_total || 0);
-  if (document.getElementById("clientesEmAtraso")) document.getElementById("clientesEmAtraso").innerText = dados.clientes_em_atraso || 0;
-  if (document.getElementById("totalClientes")) document.getElementById("totalClientes").innerText = dados.total_clientes || 0;
-
-  if (document.getElementById("dashTotalVendas")) document.getElementById("dashTotalVendas").innerText = formatarMoeda(dados.total_vendido || 0);
-  if (document.getElementById("dashLucroVendas")) document.getElementById("dashLucroVendas").innerText = formatarMoeda(dados.lucro_vendas || 0);
-  if (document.getElementById("dashLucroGeral")) document.getElementById("dashLucroGeral").innerText = formatarMoeda(dados.lucro_geral || dados.lucro_total || 0);
-}
-
-function renderizarCaixaDiario(caixa) {
-  if (!caixa) return;
-
-  if (document.getElementById("caixaEntradasHoje")) document.getElementById("caixaEntradasHoje").innerText = formatarMoeda(caixa.entradas_gerais || 0);
-  if (document.getElementById("caixaLucroHoje")) document.getElementById("caixaLucroHoje").innerText = formatarMoeda(caixa.lucro_dia || 0);
-  if (document.getElementById("caixaEmprestimosHoje")) document.getElementById("caixaEmprestimosHoje").innerText = formatarMoeda(caixa.entradas_emprestimos || 0);
-  if (document.getElementById("caixaVendasHoje")) document.getElementById("caixaVendasHoje").innerText = formatarMoeda(caixa.entradas_vendas || 0);
-}
-
-function renderizarGraficoStatus(dados) {
-  const canvas = document.getElementById("graficoStatus");
-  if (!canvas || typeof Chart === "undefined" || !Array.isArray(dados)) return;
-
-  const labels = dados.map(item => item.nome);
-  const valores = dados.map(item => item.valor);
-
-  if (graficoPizza) graficoPizza.destroy();
-
-  graficoPizza = new Chart(canvas, {
-    type: "doughnut",
-    data: {
-      labels,
-      datasets: [{
-        data: valores,
-        backgroundColor: ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6"],
-        borderWidth: 0
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false
-    }
-  });
-}
-
-async function carregarResumo() {
-  const dados = await apiGetCache("/api/resumo");
-  renderizarResumo(dados);
-}
-
-async function carregarGraficoStatus() {
-  const dados = await apiGetCache("/api/dados-grafico-dashboard");
-  renderizarGraficoStatus(dados);
-}
-
-async function carregarDashboard(forcar = false) {
-  if (forcar) limparCacheFinancePro();
-
-  try {
-    const dados = await apiGetCache("/api/dashboard-completo", forcar ? 0 : 10000);
-    renderizarResumo(dados.resumo);
-    renderizarGraficoStatus(dados.grafico);
-    renderizarCaixaDiario(dados.caixa);
-    atualizarStatusTempoReal();
-  } catch (erro) {
-    console.error("Erro ao carregar dashboard completo:", erro);
-    await carregarResumo();
-    await carregarGraficoStatus();
-  }
-}
-
-async function carregarResumoVendas() {
-  const rel = await apiGetCache("/api/relatorio-resumo", 8000);
-
-  if (document.getElementById("vendasTotalVendido")) {
-    document.getElementById("vendasTotalVendido").innerText = formatarMoeda(rel.total_vendido || 0);
-  }
-
-  if (document.getElementById("vendasLucro")) {
-    document.getElementById("vendasLucro").innerText = formatarMoeda(rel.lucro_vendas || 0);
-  }
-}
-
-async function atualizarTelaAtual(forcar = false) {
-  const telaAtiva = document.querySelector(".screen.active");
-  const idTela = telaAtiva?.id || "screen-dashboard";
-
-  if (forcar) limparCacheFinancePro();
-
-  if (idTela === "screen-dashboard") {
-    await carregarDashboard(forcar);
-    return;
-  }
-
-  if (idTela === "screen-vendas") {
-    if (forcar) await carregarVendas();
-    await carregarResumoVendas();
-    await carregarDashboard(forcar);
-    return;
-  }
-
-  if (idTela === "screen-emprestimos") {
-    if (forcar) await carregarEmprestimos();
-    await carregarDashboard(forcar);
-    return;
-  }
-
-  if (idTela === "screen-relatorios") {
-    await carregarRelatorios();
-    return;
-  }
-
-  if (idTela === "screen-clientes" && forcar) {
-    await carregarClientes();
-  }
-}
-
-async function atualizarTudo() {
-  await atualizarTelaAtual(true);
-}
-
-function iniciarAtualizacaoAutomatica() {
-  if (window.financeproIntervaloTempoReal) return;
-
-  window.financeproIntervaloTempoReal = setInterval(async () => {
-    const appLayout = document.getElementById("appLayout");
-    const logado = appLayout && appLayout.style.display !== "none";
-
-    if (!logado || document.hidden) return;
-
-    try {
-      await atualizarTelaAtual(false);
-    } catch (erro) {
-      console.warn("Falha na atualização automática:", erro);
-    }
-  }, 20000);
-}
-
-const adicionarVendaOriginalTempoReal = typeof adicionarVenda === "function" ? adicionarVenda : null;
-async function adicionarVenda() {
-  if (adicionarVendaOriginalTempoReal) {
-    await adicionarVendaOriginalTempoReal();
-    limparCacheFinancePro();
-    await atualizarTelaAtual(true);
-  }
-}
-
-const excluirVendaOriginalTempoReal = typeof excluirVenda === "function" ? excluirVenda : null;
-async function excluirVenda(id) {
-  if (excluirVendaOriginalTempoReal) {
-    await excluirVendaOriginalTempoReal(id);
-    limparCacheFinancePro();
-    await atualizarTelaAtual(true);
-  }
-}
-
-const confirmarQuitadoOriginalTempoReal = typeof confirmarQuitado === "function" ? confirmarQuitado : null;
-async function confirmarQuitado(id) {
-  if (confirmarQuitadoOriginalTempoReal) {
-    await confirmarQuitadoOriginalTempoReal(id);
-    limparCacheFinancePro();
-    await atualizarTelaAtual(true);
-  }
-}
-
-const confirmarJurosOriginalTempoReal = typeof confirmarJuros === "function" ? confirmarJuros : null;
-async function confirmarJuros(id) {
-  if (confirmarJurosOriginalTempoReal) {
-    await confirmarJurosOriginalTempoReal(id);
-    limparCacheFinancePro();
-    await atualizarTelaAtual(true);
-  }
-}
-
-const adicionarEmprestimoOriginalTempoReal = typeof adicionarEmprestimo === "function" ? adicionarEmprestimo : null;
-async function adicionarEmprestimo() {
-  if (adicionarEmprestimoOriginalTempoReal) {
-    await adicionarEmprestimoOriginalTempoReal();
-    limparCacheFinancePro();
-    await atualizarTelaAtual(true);
-  }
-}
-
-const iniciarSistemaOriginalTempoReal = typeof iniciarSistema === "function" ? iniciarSistema : null;
-async function iniciarSistema() {
-  if (iniciarSistemaOriginalTempoReal) {
-    await iniciarSistemaOriginalTempoReal();
-  }
-  iniciarAtualizacaoAutomatica();
-}
-
-window.trocarTela = trocarTela;
-window.fazerLogin = fazerLogin;
-window.abrirLogin = abrirLogin;
-window.abrirCriarUsuario = abrirCriarUsuario;
-window.voltarInicio = voltarInicio;
-window.sairSistema = sairSistema;
-window.adicionarCliente = adicionarCliente;
-window.adicionarEmprestimo = adicionarEmprestimo;
-window.confirmarQuitado = confirmarQuitado;
-window.confirmarJuros = confirmarJuros;
-window.alterarTaxaEmprestimo = alterarTaxaEmprestimo;
-window.adicionarVenda = adicionarVenda;
-window.excluirVenda = excluirVenda;
-window.gerarPdf = gerarPdf;
-window.fazerBackupBanco = fazerBackupBanco;
