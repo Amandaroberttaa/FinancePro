@@ -50,6 +50,7 @@
         <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password">
 
         <button type="submit" class="primary-btn">Entrar</button>
+        <button type="button" class="secondary-btn" onclick="solicitarRecuperacaoSenha()">Esqueci minha senha</button>
         <button type="button" class="secondary-btn" onclick="voltarInicio()">Voltar</button>
       </form>
     </div>
@@ -94,6 +95,7 @@
           <strong id="userSessionName">-</strong>
         </div>
 
+        <button type="button" class="secondary-btn btn-full" id="btnInstalarPWA" onclick="instalarPWA()" style="display:none;">Instalar no celular</button>
         <button type="button" class="primary-btn btn-full" onclick="sairSistema()">Sair</button>
       </div>
     </aside>
@@ -156,6 +158,14 @@
           <h3>Status geral</h3>
           <div class="chart-wrap">
             <canvas id="graficoStatus"></canvas>
+          </div>
+        </section>
+
+        <section class="chart-card">
+          <h3>Evolução financeira dos últimos meses</h3>
+          <p style="opacity:0.75; margin-bottom:12px;">Entradas e lucros separados por mês</p>
+          <div class="chart-wrap">
+            <canvas id="graficoFinanceiro"></canvas>
           </div>
         </section>
       </section>
@@ -528,6 +538,19 @@
         <div class="panel-card admin-panel-header">
           <h3>Console administrativo</h3>
           <p class="admin-panel-subtitle">Ambiente técnico para consulta, manutenção e auditoria do banco de dados.</p>
+        </div>
+
+        <div class="panel-card">
+          <h3>Usuários do sistema</h3>
+          <p style="opacity:0.75; margin-bottom:12px;">Gerencie acessos, bloqueios e recuperação de senha.</p>
+          <button type="button" class="primary-btn admin-inline-btn" onclick="carregarUsuariosAdmin()">Atualizar usuários</button>
+          <div id="adminUsuariosResultado" style="margin-top:15px;"></div>
+        </div>
+
+        <div class="panel-card">
+          <h3>Backup automático</h3>
+          <p style="opacity:0.75; margin-bottom:12px;">Baixe um backup JSON completo do FinancePro.</p>
+          <button type="button" class="primary-btn admin-inline-btn" onclick="baixarBackupJson()">Baixar backup JSON</button>
         </div>
 
         <div class="panel-card">

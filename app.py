@@ -204,6 +204,59 @@ def gerar_recibo_pdf(titulo, linhas, nome_base):
     return str(arquivo)
 
 
+
+
+# ---------------- RECURSOS AVANÇADOS ----------------
+
+def garantir_recursos_avancados():
+    """Cria colunas/tabelas extras sem apagar dados antigos."""
+    try:
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE")
+        cursor.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS data_criacao TEXT DEFAULT TO_CHAR(NOW(), 'DD/MM/YYYY HH24:MI:SS')")
+        cursor.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultimo_login TEXT")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS backup_logs (
+                id BIGSERIAL PRIMARY KEY,
+                usuario TEXT,
+                tipo TEXT,
+                data_hora TEXT NOT NULL,
+                detalhes TEXT
+            )
+        """)
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception:
+        pass
+
+
+garantir_recursos_avancados()
+
+
+def registrar_backup_log(tipo, detalhes=""):
+    try:
+        conn = conectar()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO backup_logs (usuario, tipo, data_hora, detalhes)
+            VALUES (%s, %s, %s, %s)
+        """, (
+            usuario_logado() or "sistema",
+            tipo,
+            datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            detalhes or ""
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception:
+        pass
+
 # ---------------- FRONT ----------------
 
 @app.route("/")
@@ -315,17 +368,30 @@ def login():
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, usuario
+        SELECT id, usuario, COALESCE(ativo, TRUE)
         FROM usuarios
         WHERE usuario = %s AND senha = %s
     """, (usuario, senha))
 
     linha = cursor.fetchone()
-    cursor.close()
-    conn.close()
 
     if not linha:
+        cursor.close()
+        conn.close()
         return jsonify({"ok": False, "mensagem": "Usuário ou senha inválidos."})
+
+    if linha[2] is False:
+        cursor.close()
+        conn.close()
+        return jsonify({"ok": False, "mensagem": "Usuário bloqueado. Fale com o administrador."})
+
+    cursor.execute("UPDATE usuarios SET ultimo_login = %s WHERE id = %s", (
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        linha[0]
+    ))
+    conn.commit()
+    cursor.close()
+    conn.close()
 
     session["usuario_id"] = linha[0]
     session["usuario"] = linha[1]
@@ -1530,6 +1596,213 @@ def listar_logs_admin():
         "data_hora": item[5],
         "ip": item[6]
     } for item in logs]})
+
+
+# ---------------- GRÁFICOS PROFISSIONAIS ----------------
+
+@app.route("/api/grafico-financeiro", methods=["GET"])
+def grafico_financeiro():
+    ver = exigir_login()
+    if ver:
+        return ver
+
+    where_v, params_v = filtro_usuario_sql("v")
+    where_p, params_p = filtro_usuario_sql("p")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(f"""
+        SELECT TO_CHAR(TO_DATE(v.data_venda, 'DD/MM/YYYY'), 'MM/YYYY') AS mes,
+               COALESCE(SUM(v.valor_venda), 0) AS total_vendido,
+               COALESCE(SUM(v.lucro), 0) AS lucro_vendas
+        FROM vendas v
+        WHERE {where_v}
+          AND v.data_venda ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND TO_DATE(v.data_venda, 'DD/MM/YYYY') >= CURRENT_DATE - INTERVAL '6 months'
+        GROUP BY mes
+        ORDER BY MIN(TO_DATE(v.data_venda, 'DD/MM/YYYY'))
+    """, params_v)
+    vendas = cursor.fetchall()
+
+    cursor.execute(f"""
+        SELECT TO_CHAR(TO_DATE(p.data_pagamento, 'DD/MM/YYYY'), 'MM/YYYY') AS mes,
+               COALESCE(SUM(p.valor_pago), 0) AS total_recebido,
+               {lucro_emprestimos_sql()} AS lucro_emprestimos
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE {where_p}
+          AND p.data_pagamento ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND TO_DATE(p.data_pagamento, 'DD/MM/YYYY') >= CURRENT_DATE - INTERVAL '6 months'
+        GROUP BY mes
+        ORDER BY MIN(TO_DATE(p.data_pagamento, 'DD/MM/YYYY'))
+    """, params_p)
+    pagamentos = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    meses = {}
+    for mes, total_vendido, lucro_vendas in vendas:
+        meses.setdefault(mes, {"mes": mes, "vendas": 0, "recebido_emprestimos": 0, "lucro_vendas": 0, "lucro_emprestimos": 0})
+        meses[mes]["vendas"] = float(total_vendido or 0)
+        meses[mes]["lucro_vendas"] = float(lucro_vendas or 0)
+
+    for mes, total_recebido, lucro_emprestimos in pagamentos:
+        meses.setdefault(mes, {"mes": mes, "vendas": 0, "recebido_emprestimos": 0, "lucro_vendas": 0, "lucro_emprestimos": 0})
+        meses[mes]["recebido_emprestimos"] = float(total_recebido or 0)
+        meses[mes]["lucro_emprestimos"] = float(lucro_emprestimos or 0)
+
+    dados = list(meses.values())
+    for item in dados:
+        item["lucro_total"] = round(item["lucro_vendas"] + item["lucro_emprestimos"], 2)
+        item["entrada_total"] = round(item["vendas"] + item["recebido_emprestimos"], 2)
+
+    return jsonify(dados)
+
+
+# ---------------- RECUPERAÇÃO DE SENHA ----------------
+
+@app.route("/api/recuperar-senha", methods=["POST"])
+def recuperar_senha():
+    dados = request.get_json() or {}
+    usuario = (dados.get("usuario") or "").strip()
+
+    if not usuario:
+        return jsonify({"ok": False, "mensagem": "Informe o usuário para recuperação."})
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM usuarios WHERE LOWER(usuario) = LOWER(%s)", (usuario,))
+    existe = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not existe:
+        return jsonify({"ok": False, "mensagem": "Usuário não encontrado."})
+
+    return jsonify({
+        "ok": True,
+        "mensagem": "Solicitação registrada. Peça ao administrador para redefinir sua senha no Painel Admin."
+    })
+
+
+# ---------------- PAINEL ADMIN COMPLETO ----------------
+
+@app.route("/api/admin/usuarios", methods=["GET"])
+def admin_listar_usuarios():
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT u.id, u.usuario, COALESCE(u.ativo, TRUE), COALESCE(u.data_criacao, ''), COALESCE(u.ultimo_login, ''),
+               (SELECT COUNT(*) FROM clientes c WHERE c.usuario_id = u.id) AS total_clientes,
+               (SELECT COUNT(*) FROM emprestimos e WHERE e.usuario_id = u.id) AS total_emprestimos,
+               (SELECT COUNT(*) FROM vendas v WHERE v.usuario_id = u.id) AS total_vendas
+        FROM usuarios u
+        ORDER BY u.id ASC
+    """)
+    usuarios = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return jsonify({"ok": True, "usuarios": [{
+        "id": item[0],
+        "usuario": item[1],
+        "ativo": bool(item[2]),
+        "data_criacao": item[3],
+        "ultimo_login": item[4],
+        "total_clientes": item[5],
+        "total_emprestimos": item[6],
+        "total_vendas": item[7]
+    } for item in usuarios]})
+
+
+@app.route("/api/admin/usuarios/<int:usuario_id>/status", methods=["POST"])
+def admin_alterar_status_usuario(usuario_id):
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    dados = request.get_json() or {}
+    ativo = bool(dados.get("ativo"))
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET ativo = %s WHERE id = %s", (ativo, usuario_id))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    registrar_log_admin("ALTERAR_STATUS_USUARIO", "", f"Usuário {usuario_id} ativo={ativo}")
+    return jsonify({"ok": True, "mensagem": "Status do usuário atualizado."})
+
+
+@app.route("/api/admin/usuarios/<int:usuario_id>/senha", methods=["POST"])
+def admin_redefinir_senha(usuario_id):
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    dados = request.get_json() or {}
+    nova_senha = (dados.get("nova_senha") or "").strip()
+
+    if len(nova_senha) < 4:
+        return jsonify({"ok": False, "mensagem": "A nova senha deve ter pelo menos 4 caracteres."})
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET senha = %s WHERE id = %s", (nova_senha, usuario_id))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    registrar_log_admin("REDEFINIR_SENHA", "", f"Senha redefinida para usuário {usuario_id}")
+    return jsonify({"ok": True, "mensagem": "Senha redefinida com sucesso."})
+
+
+# ---------------- BACKUP AUTOMÁTICO / EXPORTAÇÃO ----------------
+
+@app.route("/api/admin/backup-json", methods=["GET"])
+def admin_backup_json():
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    tabelas = ["usuarios", "clientes", "emprestimos", "pagamentos", "vendas", "admin_logs"]
+    backup = {
+        "sistema": "FinancePro",
+        "gerado_em": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "tabelas": {}
+    }
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    for tabela in tabelas:
+        try:
+            cursor.execute(f"SELECT * FROM {tabela}")
+            colunas = [desc[0] for desc in cursor.description]
+            linhas = cursor.fetchall()
+            backup["tabelas"][tabela] = [dict(zip(colunas, [str(v) if v is not None else None for v in linha])) for linha in linhas]
+        except Exception as e:
+            backup["tabelas"][tabela] = {"erro": str(e)}
+
+    cursor.close()
+    conn.close()
+
+    registrar_backup_log("manual", "Backup JSON exportado pelo administrador")
+
+    import json
+    conteudo = json.dumps(backup, ensure_ascii=False, indent=2)
+    nome = f"backup_financepro_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"
+
+    resposta = app.response_class(conteudo, mimetype="application/json")
+    resposta.headers["Content-Disposition"] = f"attachment; filename={nome}"
+    return resposta
 
 
 if __name__ == "__main__":

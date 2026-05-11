@@ -1,5 +1,7 @@
 
 let graficoPizza = null;
+let graficoFinanceiro = null;
+let deferredPromptPWA = null;
 
 function mostrarToast(mensagem, tipo = "sucesso") {
   const toast = document.createElement("div");
@@ -115,7 +117,7 @@ async function trocarTela(nomeTela) {
     }
     if (nomeTela === "relatorios") await carregarRelatorios();
     if (nomeTela === "historico") await carregarHistoricos();
-    if (nomeTela === "admin") await carregarLogsAdmin();
+    if (nomeTela === "admin") { await carregarUsuariosAdmin(); await carregarLogsAdmin(); }
   } catch (erro) {
     console.error(erro);
     mostrarToast("Erro ao carregar esta tela.", "erro");
@@ -295,10 +297,154 @@ function renderizarGraficoStatus(dados) {
   });
 }
 
+
+async function carregarGraficoFinanceiro() {
+  const canvas = document.getElementById("graficoFinanceiro");
+  if (!canvas || typeof Chart === "undefined") return;
+
+  const dados = await apiGet("/api/grafico-financeiro");
+  const labels = dados.map(item => item.mes);
+
+  if (graficoFinanceiro) graficoFinanceiro.destroy();
+
+  graficoFinanceiro = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Entradas", data: dados.map(item => item.entrada_total || 0) },
+        { label: "Lucro", data: dados.map(item => item.lucro_total || 0) }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "bottom" }
+      },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+}
+
+async function solicitarRecuperacaoSenha() {
+  const usuario = document.getElementById("loginUsuario")?.value || "";
+
+  if (!usuario.trim()) {
+    mostrarToast("Digite seu usuário no campo de login primeiro.", "erro");
+    return;
+  }
+
+  const resposta = await apiPost("/api/recuperar-senha", { usuario });
+  mostrarToast(resposta.mensagem || "Solicitação enviada.", resposta.ok ? "sucesso" : "erro");
+}
+
+async function carregarUsuariosAdmin() {
+  const area = document.getElementById("adminUsuariosResultado");
+  if (!area) return;
+
+  area.innerHTML = "Carregando usuários...";
+  const resposta = await apiGet("/api/admin/usuarios");
+
+  if (!resposta.ok) {
+    area.innerHTML = `<div class="admin-alert error">${escaparHtml(resposta.mensagem || "Erro ao carregar usuários.")}</div>`;
+    return;
+  }
+
+  if (!resposta.usuarios || !resposta.usuarios.length) {
+    area.innerHTML = `<div class="admin-box-info">Nenhum usuário encontrado.</div>`;
+    return;
+  }
+
+  let html = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Usuário</th>
+            <th>Status</th>
+            <th>Clientes</th>
+            <th>Empréstimos</th>
+            <th>Vendas</th>
+            <th>Último login</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  resposta.usuarios.forEach(u => {
+    html += `
+      <tr>
+        <td>${escaparHtml(u.id)}</td>
+        <td>${escaparHtml(u.usuario)}</td>
+        <td>${u.ativo ? "Ativo" : "Bloqueado"}</td>
+        <td>${escaparHtml(u.total_clientes)}</td>
+        <td>${escaparHtml(u.total_emprestimos)}</td>
+        <td>${escaparHtml(u.total_vendas)}</td>
+        <td>${escaparHtml(u.ultimo_login || "-")}</td>
+        <td>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button class="action-btn ${u.ativo ? "warning" : "secondary"}" onclick="alterarStatusUsuario(${u.id}, ${!u.ativo})">
+              ${u.ativo ? "Bloquear" : "Ativar"}
+            </button>
+            <button class="action-btn secondary" onclick="redefinirSenhaUsuario(${u.id})">Redefinir senha</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  html += `</tbody></table></div>`;
+  area.innerHTML = html;
+}
+
+async function alterarStatusUsuario(id, ativo) {
+  const resposta = await apiPost(`/api/admin/usuarios/${id}/status`, { ativo });
+  mostrarToast(resposta.mensagem || "Status atualizado.", resposta.ok ? "sucesso" : "erro");
+  await carregarUsuariosAdmin();
+}
+
+async function redefinirSenhaUsuario(id) {
+  const novaSenha = prompt("Digite a nova senha para este usuário:");
+  if (!novaSenha) return;
+
+  const resposta = await apiPost(`/api/admin/usuarios/${id}/senha`, { nova_senha: novaSenha });
+  mostrarToast(resposta.mensagem || "Senha redefinida.", resposta.ok ? "sucesso" : "erro");
+}
+
+function baixarBackupJson() {
+  window.open("/api/admin/backup-json", "_blank");
+}
+
+function instalarPWA() {
+  if (!deferredPromptPWA) {
+    mostrarToast("Instalação indisponível neste navegador. Use a opção 'Adicionar à tela inicial'.", "erro");
+    return;
+  }
+  deferredPromptPWA.prompt();
+  deferredPromptPWA.userChoice.finally(() => {
+    deferredPromptPWA = null;
+    const btn = document.getElementById("btnInstalarPWA");
+    if (btn) btn.style.display = "none";
+  });
+}
+
+window.addEventListener("beforeinstallprompt", event => {
+  event.preventDefault();
+  deferredPromptPWA = event;
+  const btn = document.getElementById("btnInstalarPWA");
+  if (btn) btn.style.display = "block";
+});
+
 async function carregarDashboard() {
   const dados = await apiGet("/api/dashboard-completo");
   renderizarResumo(dados.resumo || {});
   renderizarGraficoStatus(dados.grafico || []);
+  await carregarGraficoFinanceiro();
 }
 
 async function carregarResumo() {
