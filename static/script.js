@@ -52,30 +52,54 @@ async function apiDelete(url) {
   return await resp.json();
 }
 
-async function trocarTela(nomeTela) {
-  document.querySelectorAll(".screen").forEach(screen => screen.classList.remove("active"));
-  document.querySelectorAll(".nav-item").forEach(btn => btn.classList.remove("active"));
+function trocarTela(nomeTela) {
+
+  document.querySelectorAll(".screen").forEach(screen => {
+    screen.classList.remove("active");
+    screen.style.display = "none";
+  });
+
+  document.querySelectorAll(".nav-item").forEach(btn => {
+    btn.classList.remove("active");
+  });
 
   const tela = document.getElementById(`screen-${nomeTela}`);
+
+  if (tela) {
+    tela.style.display = "block";
+    tela.classList.add("active");
+  }
+
   const botao = document.querySelector(`[data-screen="${nomeTela}"]`);
 
-  if (tela) tela.classList.add("active");
-  if (botao && botao.style.display !== "none") botao.classList.add("active");
+  if (botao) {
+    botao.classList.add("active");
+  }
 
-  if (nomeTela === "dashboard") await carregarDashboard();
-  if (nomeTela === "clientes") await carregarClientes();
+  if (nomeTela === "dashboard") {
+    carregarDashboard();
+  }
+
+  if (nomeTela === "clientes") {
+    carregarClientes();
+  }
+
   if (nomeTela === "emprestimos") {
-    await carregarClientes();
-    await carregarEmprestimos();
+    carregarEmprestimos();
   }
-  if (nomeTela === "vendas") {
-    await carregarVendas();
-    await carregarResumoVendas();
-  }
-  if (nomeTela === "relatorios") await carregarRelatorios();
-  if (nomeTela === "admin") await carregarLogsAdmin();
-}
 
+  if (nomeTela === "vendas") {
+    carregarVendas();
+  }
+
+  if (nomeTela === "relatorios") {
+    carregarRelatorios();
+  }
+
+  if (nomeTela === "admin") {
+    carregarTabelasAdmin();
+  }
+}
 function classeStatus(status) {
   const valor = String(status || "").toLowerCase();
   if (valor === "aberto") return "status-aberto";
@@ -845,10 +869,6 @@ function fazerBackupBanco() {
 }
 
 
-/* =========================================================
-   OTIMIZAÇÃO PROFISSIONAL: cache inteligente, dashboard único,
-   caixa diário e atualização automática em tempo real
-   ========================================================= */
 const financeproCache = {
   dados: {},
   duracao: 12000
@@ -1073,3 +1093,19 @@ async function iniciarSistema() {
   }
   iniciarAtualizacaoAutomatica();
 }
+
+window.trocarTela = trocarTela;
+window.fazerLogin = fazerLogin;
+window.abrirLogin = abrirLogin;
+window.abrirCriarUsuario = abrirCriarUsuario;
+window.voltarInicio = voltarInicio;
+window.sairSistema = sairSistema;
+window.adicionarCliente = adicionarCliente;
+window.adicionarEmprestimo = adicionarEmprestimo;
+window.confirmarQuitado = confirmarQuitado;
+window.confirmarJuros = confirmarJuros;
+window.alterarTaxaEmprestimo = alterarTaxaEmprestimo;
+window.adicionarVenda = adicionarVenda;
+window.excluirVenda = excluirVenda;
+window.gerarPdf = gerarPdf;
+window.fazerBackupBanco = fazerBackupBanco;
