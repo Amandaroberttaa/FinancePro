@@ -1,61 +1,43 @@
 
 let graficoPizza = null;
 
-function criarAreaToast() {
-  let area = document.getElementById("toastAreaFinancePro");
-  if (area) return area;
-
-  area = document.createElement("div");
-  area.id = "toastAreaFinancePro";
-  area.style.position = "fixed";
-  area.style.top = "18px";
-  area.style.right = "18px";
-  area.style.zIndex = "99999";
-  area.style.display = "flex";
-  area.style.flexDirection = "column";
-  area.style.gap = "10px";
-  area.style.maxWidth = "360px";
-  document.body.appendChild(area);
-  return area;
-}
-
-function notificar(mensagem, tipo = "info") {
-  const area = criarAreaToast();
+function mostrarToast(mensagem, tipo = "sucesso") {
   const toast = document.createElement("div");
 
-  const cores = {
-    sucesso: "#00c853",
-    erro: "#ef4444",
-    alerta: "#f59e0b",
-    info: "#2979ff"
-  };
+  toast.innerText = mensagem;
 
-  toast.textContent = mensagem || "Ação realizada.";
-  toast.style.background = "rgba(18,18,18,0.96)";
+  toast.style.position = "fixed";
+  toast.style.top = "20px";
+  toast.style.right = "20px";
+  toast.style.padding = "14px 18px";
+  toast.style.borderRadius = "10px";
   toast.style.color = "#fff";
-  toast.style.border = `1px solid ${cores[tipo] || cores.info}`;
-  toast.style.borderLeft = `5px solid ${cores[tipo] || cores.info}`;
-  toast.style.padding = "14px 16px";
-  toast.style.borderRadius = "12px";
-  toast.style.boxShadow = "0 10px 30px rgba(0,0,0,0.35)";
-  toast.style.fontSize = "14px";
-  toast.style.lineHeight = "1.4";
+  toast.style.fontWeight = "bold";
+  toast.style.zIndex = "999999";
+  toast.style.boxShadow = "0 8px 20px rgba(0,0,0,0.25)";
+  toast.style.transition = "0.3s";
   toast.style.opacity = "0";
-  toast.style.transform = "translateY(-8px)";
-  toast.style.transition = "0.25s ease";
 
-  area.appendChild(toast);
+  if (tipo === "erro") {
+    toast.style.background = "#e53935";
+  } else {
+    toast.style.background = "#00c853";
+  }
 
-  requestAnimationFrame(() => {
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
     toast.style.opacity = "1";
-    toast.style.transform = "translateY(0)";
-  });
+  }, 100);
 
   setTimeout(() => {
     toast.style.opacity = "0";
-    toast.style.transform = "translateY(-8px)";
-    setTimeout(() => toast.remove(), 260);
-  }, 3600);
+
+    setTimeout(() => {
+      toast.remove();
+    }, 300);
+
+  }, 3000);
 }
 
 function formatarMoeda(valor) {
@@ -136,7 +118,7 @@ async function trocarTela(nomeTela) {
     if (nomeTela === "admin") await carregarLogsAdmin();
   } catch (erro) {
     console.error(erro);
-    notificar("Erro ao carregar esta tela.", "erro");
+    mostrarToast("Erro ao carregar esta tela.", "erro");
   }
 }
 
@@ -199,14 +181,14 @@ async function criarUsuarioInicial() {
   const senha = document.getElementById("novaSenha")?.value || "";
 
   if (!usuario.trim() || !senha.trim()) {
-    notificar("Usuário e senha são obrigatórios.", "alerta");
+    mostrarToast("Usuário e senha são obrigatórios.", "alerta");
     return;
   }
 
   const resp = await apiPost("/api/criar-usuario", { usuario, senha });
 
   if (!resp.ok) {
-    notificar(resp.mensagem || "Não foi possível criar o usuário.", "erro");
+    mostrarToast(resp.mensagem || "Não foi possível criar o usuário.", "erro");
     return;
   }
 
@@ -218,7 +200,7 @@ async function criarUsuarioInicial() {
   document.getElementById("appLayout").style.display = "flex";
 
   atualizarInfoSessao(resp.usuario || usuario, !!resp.is_admin);
-  notificar("Conta criada com sucesso.", "sucesso");
+  mostrarToast("Conta criada com sucesso.", "sucesso");
   await carregarDashboard();
 }
 
@@ -227,14 +209,14 @@ async function fazerLogin() {
   const senha = document.getElementById("loginSenha")?.value || "";
 
   if (!usuario.trim() || !senha.trim()) {
-    notificar("Informe usuário e senha.", "alerta");
+    mostrarToast("Informe usuário e senha.", "alerta");
     return;
   }
 
   const resposta = await apiPost("/api/login", { usuario, senha });
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem || "Usuário ou senha inválidos.", "erro");
+    mostrarToast(resposta.mensagem || "Usuário ou senha inválidos.", "erro");
     return;
   }
 
@@ -246,7 +228,7 @@ async function fazerLogin() {
   document.getElementById("formLogin")?.reset();
 
   atualizarInfoSessao(resposta.usuario || "", !!resposta.is_admin);
-  notificar("Login realizado com sucesso.", "sucesso");
+  mostrarToast("Login realizado com sucesso.", "sucesso");
   await carregarDashboard();
 }
 
@@ -257,7 +239,7 @@ async function sairSistema() {
   document.getElementById("screen-inicial").style.display = "flex";
   document.getElementById("screen-login").style.display = "none";
   limparInfoSessao();
-  notificar("Você saiu do sistema.", "info");
+  mostrarToast("Você saiu do sistema.", "info");
 }
 
 function abrirLogin() {
@@ -381,7 +363,7 @@ async function adicionarCliente() {
   const resposta = await apiPost("/api/clientes", { nome, telefone, cpf, endereco, data_contratacao });
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
@@ -391,7 +373,7 @@ async function adicionarCliente() {
   document.getElementById("novoEndereco").value = "";
   document.getElementById("novaDataContratacao").value = "";
 
-  notificar(resposta.mensagem || "Cliente cadastrado.", "sucesso");
+  mostrarToast(resposta.mensagem || "Cliente cadastrado.", "sucesso");
   await carregarClientes();
   await carregarDashboard();
 }
@@ -400,7 +382,7 @@ async function abrirEdicaoCliente(clienteId) {
   const resposta = await apiGet(`/api/clientes/${clienteId}`);
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
@@ -430,11 +412,11 @@ async function salvarEdicaoCliente() {
   });
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
-  notificar(resposta.mensagem, "sucesso");
+  mostrarToast(resposta.mensagem, "sucesso");
   document.getElementById("painelEditarCliente").style.display = "none";
   await carregarClientes();
   await carregarDashboard();
@@ -489,7 +471,7 @@ async function adicionarEmprestimo() {
   const resposta = await apiPost("/api/emprestimos", { cliente_id, valor, data_inicio, taxa });
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
@@ -498,7 +480,7 @@ async function adicionarEmprestimo() {
   document.getElementById("emprestimoData").value = "";
   document.getElementById("emprestimoTaxa").value = "30";
 
-  notificar(resposta.mensagem || "Empréstimo criado.", "sucesso");
+  mostrarToast(resposta.mensagem || "Empréstimo criado.", "sucesso");
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -511,11 +493,11 @@ async function confirmarQuitado(id) {
   const resposta = await apiPost(`/api/emprestimos/${id}/quitar`);
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
-  notificar(resposta.mensagem, "sucesso");
+  mostrarToast(resposta.mensagem, "sucesso");
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -528,11 +510,11 @@ async function confirmarJuros(id) {
   const resposta = await apiPost(`/api/emprestimos/${id}/pagar-juros`);
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
-  notificar(resposta.mensagem, "sucesso");
+  mostrarToast(resposta.mensagem, "sucesso");
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -546,11 +528,11 @@ async function alterarTaxaEmprestimo(id, taxaAtual) {
   const resposta = await apiPost(`/api/emprestimos/${id}/trocar-taxa`, { nova_taxa: novaTaxa });
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
-  notificar(resposta.mensagem, "sucesso");
+  mostrarToast(resposta.mensagem, "sucesso");
   await carregarEmprestimos();
   await carregarDashboard();
   await carregarRelatorios();
@@ -616,7 +598,7 @@ async function adicionarVenda() {
   });
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
@@ -627,7 +609,7 @@ async function adicionarVenda() {
   document.getElementById("vendaData").value = "";
   document.getElementById("vendaObservacao").value = "";
 
-  notificar(resposta.mensagem, "sucesso");
+  mostrarToast(resposta.mensagem, "sucesso");
   await carregarVendas();
   await carregarResumoVendas();
   await carregarDashboard();
@@ -638,7 +620,7 @@ async function abrirEdicaoVenda(id) {
   const resposta = await apiGet(`/api/vendas/${id}`);
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
@@ -672,11 +654,11 @@ async function salvarEdicaoVenda() {
   });
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
-  notificar(resposta.mensagem, "sucesso");
+  mostrarToast(resposta.mensagem, "sucesso");
   fecharEdicaoVenda();
   await carregarVendas();
   await carregarResumoVendas();
@@ -691,11 +673,11 @@ async function excluirVenda(id) {
   const resposta = await apiDelete(`/api/vendas/${id}`);
 
   if (!resposta.ok) {
-    notificar(resposta.mensagem, "erro");
+    mostrarToast(resposta.mensagem, "erro");
     return;
   }
 
-  notificar(resposta.mensagem, "sucesso");
+  mostrarToast(resposta.mensagem, "sucesso");
   await carregarVendas();
   await carregarResumoVendas();
   await carregarDashboard();
@@ -1009,7 +991,7 @@ async function executarSqlAdmin() {
   const resultado = document.getElementById("adminResultado");
 
   if (!sql.trim()) {
-    notificar("Digite um SQL.", "alerta");
+    mostrarToast("Digite um SQL.", "alerta");
     return;
   }
 
