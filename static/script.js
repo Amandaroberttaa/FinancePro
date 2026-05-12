@@ -121,9 +121,17 @@ async function apiPost(url, dados = {}) {
     body: JSON.stringify(dados)
   });
 
-  const contentType = resp.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) return await resp.json();
-  return resp;
+  const texto = await resp.text();
+
+  try {
+    return JSON.parse(texto);
+  } catch (e) {
+    console.error("Resposta não JSON:", texto);
+    return {
+      ok: false,
+      mensagem: "Erro no servidor. Verifique se o app.py atualizado está rodando."
+    };
+  }
 }
 
 async function apiPut(url, dados = {}) {
@@ -414,6 +422,7 @@ async function carregarUsuariosAdmin() {
   if (!area) return;
 
   area.innerHTML = "Carregando usuários...";
+
   const resposta = await apiGet("/api/admin/usuarios");
 
   if (!resposta.ok) {
@@ -445,19 +454,26 @@ async function carregarUsuariosAdmin() {
   `;
 
   resposta.usuarios.forEach(u => {
+    const statusAtual = String(u.status || "").toLowerCase();
+    const estaAtivo = statusAtual === "ativo";
+    const statusTexto = estaAtivo ? "Ativo" : "Bloqueado";
+    const proximoStatus = estaAtivo ? "bloqueado" : "ativo";
+    const textoBotao = estaAtivo ? "Bloquear" : "Ativar";
+    const classeBotao = estaAtivo ? "warning" : "secondary";
+
     html += `
       <tr>
         <td>${escaparHtml(u.id)}</td>
         <td>${escaparHtml(u.usuario)}</td>
-        <td>${u.ativo ? "Ativo" : "Bloqueado"}</td>
+        <td>${statusTexto}</td>
         <td>${escaparHtml(u.total_clientes)}</td>
         <td>${escaparHtml(u.total_emprestimos)}</td>
         <td>${escaparHtml(u.total_vendas)}</td>
         <td>${escaparHtml(u.ultimo_login || "-")}</td>
         <td>
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button class="action-btn ${u.ativo ? "warning" : "secondary"}" onclick="alterarStatusUsuario(${u.id}, ${!u.ativo})">
-              ${u.ativo ? "Bloquear" : "Ativar"}
+            <button class="action-btn ${classeBotao}" onclick="alterarStatusUsuario(${u.id}, '${proximoStatus}')">
+              ${textoBotao}
             </button>
             <button class="action-btn secondary" onclick="redefinirSenhaUsuario(${u.id})">Redefinir senha</button>
           </div>
@@ -470,11 +486,7 @@ async function carregarUsuariosAdmin() {
   area.innerHTML = html;
 }
 
-async function alterarStatusUsuario(id, ativo) {
-  const resposta = await apiPost(`/api/admin/usuarios/${id}/status`, { ativo });
-  mostrarToast(resposta.mensagem || "Status atualizado.", resposta.ok ? "sucesso" : "erro");
-  await carregarUsuariosAdmin();
-}
+
 
 async function redefinirSenhaUsuario(id) {
   const novaSenha = prompt("Digite a nova senha para este usuário:");
@@ -1703,3 +1715,39 @@ async function salvarClienteAssinaturaAdmin(id) {
     mostrarToast(erro.message || "Erro ao salvar cliente.", "erro");
   }
 }
+
+
+async function alterarStatusUsuario(id, status = "ativo") {
+  if (status === true) status = "ativo";
+  if (status === false) status = "bloqueado";
+
+  const resposta = await apiPost(`/api/admin/usuarios/${id}/status`, { status });
+
+  if (!resposta.ok) {
+    mostrarToast(resposta.mensagem || "Erro ao alterar status.", "erro");
+    return;
+  }
+
+  mostrarToast(resposta.mensagem || "Status atualizado.", "sucesso");
+
+  if (typeof carregarUsuariosAdmin === "function") {
+    await carregarUsuariosAdmin();
+  }
+
+  if (typeof carregarClientesAssinaturaAdmin === "function") {
+    await carregarClientesAssinaturaAdmin();
+  }
+
+  if (typeof carregarAssinatura === "function") {
+    await carregarAssinatura();
+  }
+}
+
+async function ativarUsuario(id) {
+  await alterarStatusUsuario(id, "ativo");
+}
+
+async function bloquearUsuario(id) {
+  await alterarStatusUsuario(id, "bloqueado");
+}
+

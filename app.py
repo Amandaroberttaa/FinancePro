@@ -286,20 +286,50 @@ def dias_restantes_plano(data_vencimento):
 def usuario_plano_vencido(usuario_id):
     if not usuario_id:
         return False, None
+
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("SELECT status, data_vencimento FROM usuarios WHERE id = %s", (usuario_id,))
+
+    cursor.execute("""
+        SELECT COALESCE(status, 'ativo'), data_vencimento, COALESCE(ativo, TRUE)
+        FROM usuarios
+        WHERE id = %s
+    """, (usuario_id,))
+
     linha = cursor.fetchone()
-    cursor.close(); conn.close()
+    cursor.close()
+    conn.close()
+
     if not linha:
         return True, "Usuário não encontrado."
+
     status = (linha[0] or "ativo").strip().lower()
     data_vencimento = linha[1]
-    if status in ("bloqueado", "inativo", "vencido"):
+    ativo = linha[2]
+
+    if ativo is False or status in ("bloqueado", "inativo", "vencido"):
         return True, "Seu acesso está bloqueado. Fale com o administrador."
+
     data = data_para_date(data_vencimento)
+
     if data and data < hoje_data():
+        try:
+            conn = conectar()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE usuarios
+                SET status = 'vencido',
+                    ativo = FALSE
+                WHERE id = %s
+            """, (usuario_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception:
+            pass
+
         return True, "Seu plano venceu. Fale com o administrador para renovar o acesso."
+
     return False, None
 
 def exigir_plano_ativo():
@@ -324,7 +354,7 @@ def atualizar_status_vencidos():
     try:
         conn = conectar(); cursor = conn.cursor()
         cursor.execute("""
-            UPDATE usuarios SET status = 'vencido'
+            UPDATE usuarios SET status = 'vencido', ativo = FALSE
             WHERE COALESCE(status, 'ativo') = 'ativo'
               AND data_vencimento IS NOT NULL
               AND data_vencimento ~ '^\\d{2}/\\d{2}/\\d{4}$'
@@ -370,7 +400,7 @@ def registrar_auditoria(acao, tabela="", registro_id="", detalhes=""):
 
 
 def exigir_permissao_escrita():
-    ver = exigir_permissao_escrita()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -573,63 +603,145 @@ def login():
     senha = (dados.get("senha") or "").strip()
 
     if not usuario or not senha:
-        return jsonify({"ok": False, "mensagem": "Informe usuário e senha."})
+        return jsonify({
+            "ok": False,
+            "mensagem": "Informe usuário e senha."
+        })
 
+    # LOGIN ADMIN
     if usuario.upper() == ADMIN_USUARIO and senha == ADMIN_SENHA:
         session["usuario_id"] = None
         session["usuario"] = ADMIN_USUARIO
         session["is_admin"] = True
-        registrar_log_admin("LOGIN_ADMIN", "", "Administrador entrou no sistema")
+        session["tipo_usuario"] = "admin"
+
+        try:
+            registrar_log_admin("LOGIN_ADMIN", "", "Administrador entrou no sistema")
+        except Exception:
+            pass
+
         return jsonify({
             "ok": True,
             "mensagem": "Login admin realizado com sucesso.",
             "is_admin": True,
-            "usuario": ADMIN_USUARIO
+            "usuario": ADMIN_USUARIO,
+            "tipo_usuario": "admin"
         })
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, usuario, COALESCE(ativo, TRUE)
+        SELECT
+            id,
+            usuario,
+            senha,
+            COALESCE(status, 'ativo') AS status,
+            COALESCE(plano, 'Básico') AS plano,
+            COALESCE(data_vencimento, '') AS data_vencimento,
+            COALESCE(valor_mensal, 0) AS valor_mensal,
+            COALESCE(ativo, TRUE) AS ativo,
+            COALESCE(tipo_usuario, 'dono') AS tipo_usuario,
+            COALESCE(logo_url, '') AS logo_url,
+            COALESCE(whatsapp, '') AS whatsapp
         FROM usuarios
-        WHERE usuario = %s AND senha = %s
-    """, (usuario, senha))
+        WHERE LOWER(TRIM(usuario)) = LOWER(TRIM(%s))
+        LIMIT 1
+    """, (usuario,))
 
     linha = cursor.fetchone()
 
     if not linha:
         cursor.close()
         conn.close()
-        return jsonify({"ok": False, "mensagem": "Usuário ou senha inválidos."})
+        return jsonify({
+            "ok": False,
+            "mensagem": "Usuário ou senha inválidos."
+        })
 
-    if linha[2] is False:
+    usuario_id = linha[0]
+    usuario_banco = linha[1]
+    senha_banco = str(linha[2] or "").strip()
+    status = str(linha[3] or "ativo").strip().lower()
+    plano = linha[4] or "Básico"
+    data_vencimento = linha[5] or ""
+    valor_mensal = float(linha[6] or 0)
+    ativo = linha[7]
+    tipo_usuario = linha[8] or "dono"
+    logo_url = linha[9] or ""
+    whatsapp = linha[10] or ""
+
+    if senha_banco != senha:
         cursor.close()
         conn.close()
-        return jsonify({"ok": False, "mensagem": "Usuário bloqueado. Fale com o administrador."})
+        return jsonify({
+            "ok": False,
+            "mensagem": "Usuário ou senha inválidos."
+        })
 
-    cursor.execute("UPDATE usuarios SET ultimo_login = %s WHERE id = %s", (
+    # Bloqueio manual
+    if ativo is False or status in ("bloqueado", "inativo", "vencido"):
+        cursor.close()
+        conn.close()
+        return jsonify({
+            "ok": False,
+            "bloqueado": True,
+            "mensagem": "Seu acesso está bloqueado. Fale com o administrador."
+        })
+
+    # Bloqueio automático por vencimento
+    data_venc = data_para_date(data_vencimento)
+    if data_venc and data_venc < hoje_data():
+        cursor.execute("""
+            UPDATE usuarios
+            SET status = 'vencido',
+                ativo = FALSE
+            WHERE id = %s
+        """, (usuario_id,))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "ok": False,
+            "bloqueado": True,
+            "mensagem": "Seu plano venceu. Fale com o administrador para renovar o acesso."
+        })
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET ultimo_login = %s,
+            status = 'ativo',
+            ativo = TRUE
+        WHERE id = %s
+    """, (
         datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        linha[0]
+        usuario_id
     ))
+
     conn.commit()
     cursor.close()
     conn.close()
 
-    session["usuario_id"] = linha[0]
-    session["usuario"] = linha[1]
+    session["usuario_id"] = usuario_id
+    session["usuario"] = usuario_banco
     session["is_admin"] = False
+    session["tipo_usuario"] = tipo_usuario
 
     return jsonify({
         "ok": True,
         "mensagem": "Login realizado com sucesso.",
         "is_admin": False,
-        "usuario": linha[1],
-        "usuario_id": linha[0],
-        "plano": linha[2] or "Básico",
-        "status": linha[3] or "ativo",
-        "data_vencimento": linha[4] or "",
-        "valor_mensal": float(linha[5] or 0)
+        "usuario": usuario_banco,
+        "usuario_id": usuario_id,
+        "plano": plano,
+        "status": "ativo",
+        "data_vencimento": data_vencimento,
+        "valor_mensal": valor_mensal,
+        "tipo_usuario": tipo_usuario,
+        "logo_url": logo_url,
+        "whatsapp": whatsapp
     })
 
 
@@ -2118,17 +2230,64 @@ def admin_alterar_status_usuario(usuario_id):
         return ver
 
     dados = request.get_json() or {}
-    ativo = bool(dados.get("ativo"))
+    status_recebido = (dados.get("status") or dados.get("novo_status") or "").strip().lower()
+
+    if not status_recebido:
+        status_recebido = "ativo"
+
+    if status_recebido not in ("ativo", "bloqueado", "vencido", "inativo"):
+        return jsonify({"ok": False, "mensagem": "Status inválido."})
 
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET ativo = %s WHERE id = %s", (ativo, usuario_id))
+
+    if status_recebido == "ativo":
+        nova_data = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+        cursor.execute("""
+            UPDATE usuarios
+            SET status = 'ativo',
+                ativo = TRUE,
+                data_vencimento = %s
+            WHERE id = %s
+        """, (nova_data, usuario_id))
+    else:
+        nova_data = None
+        cursor.execute("""
+            UPDATE usuarios
+            SET status = %s,
+                ativo = FALSE
+            WHERE id = %s
+        """, (status_recebido, usuario_id))
+
+    linhas_afetadas = cursor.rowcount
     conn.commit()
+
     cursor.close()
     conn.close()
 
-    registrar_log_admin("ALTERAR_STATUS_USUARIO", "", f"Usuário {usuario_id} ativo={ativo}")
-    return jsonify({"ok": True, "mensagem": "Status do usuário atualizado."})
+    if linhas_afetadas == 0:
+        return jsonify({"ok": False, "mensagem": "Usuário não encontrado."})
+
+    try:
+        registrar_log_admin("ALTERAR_STATUS_USUARIO", "", f"Usuário ID {usuario_id} alterado para {status_recebido}")
+    except Exception:
+        pass
+
+    if status_recebido == "ativo":
+        return jsonify({
+            "ok": True,
+            "mensagem": f"Usuário ativado até {nova_data}.",
+            "status": "ativo",
+            "data_vencimento": nova_data
+        })
+
+    return jsonify({
+        "ok": True,
+        "mensagem": f"Usuário alterado para {status_recebido}.",
+        "status": status_recebido
+    })
+
+
 
 
 @app.route("/api/admin/usuarios/<int:usuario_id>/senha", methods=["POST"])
@@ -2547,6 +2706,83 @@ def admin_atualizar_plano_usuario(usuario_id):
         pass
 
     return jsonify({"ok": True, "mensagem": "Cliente atualizado com sucesso."})
+
+
+
+
+@app.route("/api/admin/usuarios/<int:usuario_id>/ativar", methods=["POST"])
+def admin_ativar_usuario(usuario_id):
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    nova_data = (datetime.now() + timedelta(days=30)).strftime("%d/%m/%Y")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET status = 'ativo',
+            ativo = TRUE,
+            data_vencimento = %s
+        WHERE id = %s
+    """, (nova_data, usuario_id))
+
+    linhas_afetadas = cursor.rowcount
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    if linhas_afetadas == 0:
+        return jsonify({"ok": False, "mensagem": "Usuário não encontrado."})
+
+    try:
+        registrar_log_admin("ATIVAR_USUARIO", "", f"Usuário ID {usuario_id} ativado até {nova_data}")
+    except Exception:
+        pass
+
+    return jsonify({
+        "ok": True,
+        "mensagem": f"Usuário ativado até {nova_data}.",
+        "data_vencimento": nova_data
+    })
+
+
+
+
+@app.route("/api/admin/usuarios/<int:usuario_id>/bloquear", methods=["POST"])
+def admin_bloquear_usuario(usuario_id):
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET status = 'bloqueado',
+            ativo = FALSE
+        WHERE id = %s
+    """, (usuario_id,))
+
+    linhas_afetadas = cursor.rowcount
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    if linhas_afetadas == 0:
+        return jsonify({"ok": False, "mensagem": "Usuário não encontrado."})
+
+    try:
+        registrar_log_admin("BLOQUEAR_USUARIO", "", f"Usuário ID {usuario_id} bloqueado")
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "mensagem": "Usuário bloqueado com sucesso."})
 
 
 if __name__ == "__main__":
