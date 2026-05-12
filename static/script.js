@@ -1,11 +1,5 @@
 
 let graficoPizza = null;
-
-if (typeof Chart !== "undefined") {
-  Chart.defaults.color = "#cbd5e1";
-  Chart.defaults.borderColor = "rgba(148, 163, 184, 0.14)";
-  Chart.defaults.font.family = "Inter, Arial, sans-serif";
-}
 let graficoFinanceiro = null;
 let deferredPromptPWA = null;
 
@@ -89,7 +83,19 @@ async function apiPut(url, dados = {}) {
     credentials: "same-origin",
     body: JSON.stringify(dados)
   });
-  return await resp.json();
+
+  const texto = await resp.text();
+
+  try {
+    return JSON.parse(texto);
+  } catch (e) {
+    console.error("Resposta não JSON:", texto);
+    return {
+      ok: false,
+      mensagem: "Erro no servidor. Verifique se o app.py atualizado está rodando."
+    };
+  }
+
 }
 
 async function apiDelete(url) {
@@ -123,7 +129,9 @@ async function trocarTela(nomeTela) {
     }
     if (nomeTela === "relatorios") await carregarRelatorios();
     if (nomeTela === "historico") await carregarHistoricos();
-    if (nomeTela === "admin") { await carregarUsuariosAdmin(); await carregarLogsAdmin(); }
+    if (nomeTela === "assinatura") await carregarAssinatura();
+    if (nomeTela === "admin") { await carregarUsuariosAdmin(); await carregarLogsAdmin();
+      await carregarAuditoriaAdmin(); }
   } catch (erro) {
     console.error(erro);
     mostrarToast("Erro ao carregar esta tela.", "erro");
@@ -173,11 +181,13 @@ async function verificarLoginInicial() {
     if (appLayout) appLayout.style.display = "flex";
 
     atualizarInfoSessao(sessao.usuario || "", !!sessao.is_admin);
+    atualizarInfoPlano(sessao);
     await carregarDashboard();
     return;
   }
 
   limparInfoSessao();
+  atualizarInfoPlano(null);
   if (telaInicial) telaInicial.style.display = "flex";
   if (telaLogin) telaLogin.style.display = "none";
   if (telaCriar) telaCriar.style.display = "none";
@@ -208,6 +218,7 @@ async function criarUsuarioInicial() {
   document.getElementById("appLayout").style.display = "flex";
 
   atualizarInfoSessao(resp.usuario || usuario, !!resp.is_admin);
+  atualizarInfoPlano(resp);
   mostrarToast("Conta criada com sucesso.", "sucesso");
   await carregarDashboard();
 }
@@ -236,6 +247,7 @@ async function fazerLogin() {
   document.getElementById("formLogin")?.reset();
 
   atualizarInfoSessao(resposta.usuario || "", !!resposta.is_admin);
+  atualizarInfoPlano(resposta);
   mostrarToast("Login realizado com sucesso.", "sucesso");
   await carregarDashboard();
 }
@@ -1180,6 +1192,7 @@ async function executarSqlAdmin() {
       resultado.innerHTML = `<div class="admin-box-info"><strong>Comando executado.</strong><br>Linhas afetadas: ${Number(resposta.linhas_afetadas ?? 0)}</div>`;
     }
     await carregarLogsAdmin();
+      await carregarAuditoriaAdmin();
   }
 }
 
@@ -1230,3 +1243,356 @@ async function iniciarSistema() {
 document.addEventListener("DOMContentLoaded", () => {
   iniciarSistema();
 });
+
+
+
+// ---------------- ASSINATURA / PIX / AUDITORIA ----------------
+
+async function carregarAssinatura() {
+  const dados = await apiGet("/api/minha-assinatura");
+
+  if (!dados.ok) {
+    mostrarToast(dados.mensagem || "Erro ao carregar assinatura.", "erro");
+    return;
+  }
+
+  const setText = (id, valor) => {
+    const el = document.getElementById(id);
+    if (el) el.innerText = valor;
+  };
+
+  if (dados.admin) {
+    await carregarClientesAssinaturaAdmin();
+    setText("assinaturaPlano", `${dados.total_clientes || 0} clientes`);
+    setText("assinaturaVencimento", `${dados.vencidos || 0} vencidos`);
+    setText("assinaturaValor", formatarMoeda(dados.faturamento || 0));
+    setText("assinaturaStatus", `${dados.ativos || 0} ativos`);
+
+    const pix = document.getElementById("assinaturaPix");
+    if (pix) pix.value = dados.pix || "PIX não configurado.";
+
+    const preview = document.getElementById("logoPreviewCliente");
+    if (preview) {
+      preview.src = "";
+      preview.style.display = "none";
+    }
+
+    return;
+  }
+
+  setText("assinaturaPlano", dados.plano || "-");
+  setText("assinaturaVencimento", dados.data_vencimento || "-");
+  setText("assinaturaValor", formatarMoeda(dados.valor_mensal || 0));
+  setText("assinaturaStatus", dados.status || "-");
+
+  const pix = document.getElementById("assinaturaPix");
+  if (pix) pix.value = dados.pix || "PIX não configurado.";
+
+  const whats = document.getElementById("meuWhatsapp");
+  if (whats) whats.value = dados.whatsapp || "";
+
+  const preview = document.getElementById("logoPreviewCliente");
+  if (preview && dados.logo_url) {
+    preview.src = dados.logo_url;
+    preview.style.display = "block";
+  } else if (preview) {
+    preview.src = "";
+    preview.style.display = "none";
+  }
+}
+
+async function copiarPixAssinatura() {
+  const campo = document.getElementById("assinaturaPix");
+  if (!campo || !campo.value) {
+    mostrarToast("Nenhum PIX disponível.", "erro");
+    return;
+  }
+
+  await navigator.clipboard.writeText(campo.value);
+  mostrarToast("PIX copiado com sucesso.", "sucesso");
+}
+
+async function salvarMinhaConta() {
+  const arquivo = document.getElementById("minhaLogoArquivo")?.files?.[0];
+  const whatsapp = document.getElementById("meuWhatsapp")?.value || "";
+
+  async function enviarConta(logo_url) {
+    const resposta = await apiPut("/api/minha-conta", {
+      logo_url,
+      whatsapp
+    });
+
+    if (!resposta.ok) {
+      mostrarToast(resposta.mensagem || "Erro ao salvar conta.", "erro");
+      return;
+    }
+
+    mostrarToast("Personalização salva com sucesso.", "sucesso");
+
+    const preview = document.getElementById("logoPreviewCliente");
+    if (preview && logo_url) {
+      preview.src = logo_url;
+      preview.style.display = "block";
+    }
+  }
+
+  if (arquivo) {
+    if (!arquivo.type.startsWith("image/")) {
+      mostrarToast("Selecione um arquivo de imagem.", "erro");
+      return;
+    }
+
+    const tamanhoMaximoMb = 1.5;
+    const tamanhoMb = arquivo.size / 1024 / 1024;
+
+    if (tamanhoMb > tamanhoMaximoMb) {
+      mostrarToast("A imagem precisa ter até 1,5MB.", "erro");
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = async function(e) {
+      await enviarConta(e.target.result);
+    };
+
+    reader.readAsDataURL(arquivo);
+    return;
+  }
+
+  const preview = document.getElementById("logoPreviewCliente");
+  const logoAtual = preview && preview.src ? preview.src : "";
+
+  await enviarConta(logoAtual);
+}
+
+async function carregarAuditoriaAdmin() {
+  const area = document.getElementById("adminAuditoriaResultado");
+  if (!area) return;
+
+  area.innerHTML = `<tr><td colspan="7">Carregando auditoria...</td></tr>`;
+
+  const resposta = await apiGet("/api/admin/auditoria");
+
+  if (!resposta.ok) {
+    area.innerHTML = `<tr><td colspan="7">${escaparHtml(resposta.mensagem || "Erro ao carregar auditoria.")}</td></tr>`;
+    return;
+  }
+
+  const dados = resposta.auditoria || [];
+
+  if (!dados.length) {
+    area.innerHTML = `<tr><td colspan="7">Nenhuma alteração registrada.</td></tr>`;
+    return;
+  }
+
+  area.innerHTML = "";
+
+  dados.forEach(item => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${item.id}</td>
+      <td>${escaparHtml(item.usuario || "-")}</td>
+      <td>${escaparHtml(item.acao || "-")}</td>
+      <td>${escaparHtml(item.tabela || "-")}</td>
+      <td>${escaparHtml(item.registro_id || "-")}</td>
+      <td>${escaparHtml(item.detalhes || "-")}</td>
+      <td>${escaparHtml(item.data_hora || "-")}</td>
+    `;
+    area.appendChild(tr);
+  });
+}
+
+
+
+// ---------------- ADMIN NA ABA ASSINATURA ----------------
+
+async function carregarClientesAssinaturaAdmin() {
+  const painel = document.getElementById("assinaturaAdminClientes");
+  const tabela = document.getElementById("assinaturaTabelaClientes");
+  if (!painel || !tabela) return;
+
+  painel.style.display = "block";
+  tabela.innerHTML = `<tr><td colspan="9">Carregando clientes...</td></tr>`;
+
+  const resposta = await apiGet("/api/admin/usuarios");
+
+  if (!resposta.ok) {
+    tabela.innerHTML = `<tr><td colspan="9">${escaparHtml(resposta.mensagem || "Erro ao carregar clientes.")}</td></tr>`;
+    return;
+  }
+
+  const usuarios = resposta.usuarios || [];
+
+  if (!usuarios.length) {
+    tabela.innerHTML = `<tr><td colspan="9">Nenhum cliente cadastrado.</td></tr>`;
+    return;
+  }
+
+  tabela.innerHTML = "";
+
+  usuarios.forEach(u => {
+    const tr = document.createElement("tr");
+    const logo = u.logo_url || "";
+
+    tr.innerHTML = `
+      <td>
+        <strong>${escaparHtml(u.usuario)}</strong><br>
+        <small>ID ${u.id}</small>
+      </td>
+
+      <td>
+        <select id="assPlano-${u.id}">
+          <option value="Teste grátis" ${u.plano === "Teste grátis" ? "selected" : ""}>Teste grátis</option>
+          <option value="Básico" ${u.plano === "Básico" ? "selected" : ""}>Básico</option>
+          <option value="Profissional" ${u.plano === "Profissional" ? "selected" : ""}>Profissional</option>
+          <option value="Premium" ${u.plano === "Premium" ? "selected" : ""}>Premium</option>
+        </select>
+      </td>
+
+      <td>
+        <select id="assStatus-${u.id}">
+          <option value="ativo" ${u.status === "ativo" ? "selected" : ""}>Ativo</option>
+          <option value="vencido" ${u.status === "vencido" ? "selected" : ""}>Vencido</option>
+          <option value="bloqueado" ${u.status === "bloqueado" ? "selected" : ""}>Bloqueado</option>
+          <option value="inativo" ${u.status === "inativo" ? "selected" : ""}>Inativo</option>
+        </select>
+      </td>
+
+      <td>
+        <input type="text" id="assVenc-${u.id}" value="${escaparHtml(u.data_vencimento || "")}" placeholder="dd/mm/aaaa">
+      </td>
+
+      <td>
+        <input type="number" id="assValor-${u.id}" value="${u.valor_mensal || 0}" placeholder="97">
+      </td>
+
+      <td>
+        <select id="assTipo-${u.id}">
+          <option value="dono" ${u.tipo_usuario === "dono" ? "selected" : ""}>Dono</option>
+          <option value="funcionario" ${u.tipo_usuario === "funcionario" ? "selected" : ""}>Funcionário</option>
+          <option value="visualizador" ${u.tipo_usuario === "visualizador" ? "selected" : ""}>Visualizador</option>
+        </select>
+      </td>
+
+      <td>
+        <input type="text" id="assWhats-${u.id}" value="${escaparHtml(u.whatsapp || "")}" placeholder="WhatsApp">
+      </td>
+
+      <td>
+        <input class="admin-logo-file" type="file" id="assLogoFile-${u.id}" accept="image/*" onchange="previewLogoAdmin(${u.id})">
+        <img id="assLogoPreview-${u.id}" class="logo-admin-preview" src="${escaparHtml(logo)}" style="${logo ? "" : "display:none;"}">
+      </td>
+
+      <td>
+        <div class="action-stack">
+          <button class="action-btn secondary" onclick="salvarClienteAssinaturaAdmin(${u.id})">Salvar</button>
+          <button class="action-btn" onclick="renovarUsuario(${u.id}, 30)">+30 dias</button>
+          <button class="action-btn warning" onclick="bloquearUsuario(${u.id})">Bloquear</button>
+          <button class="action-btn secondary" onclick="redefinirSenhaUsuario(${u.id})">Senha</button>
+        </div>
+      </td>
+    `;
+
+    tabela.appendChild(tr);
+  });
+}
+
+function previewLogoAdmin(id) {
+  const arquivo = document.getElementById(`assLogoFile-${id}`)?.files?.[0];
+  const preview = document.getElementById(`assLogoPreview-${id}`);
+
+  if (!arquivo || !preview) return;
+
+  if (!arquivo.type.startsWith("image/")) {
+    mostrarToast("Selecione uma imagem válida.", "erro");
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    preview.src = e.target.result;
+    preview.style.display = "block";
+  };
+  reader.readAsDataURL(arquivo);
+}
+
+function lerLogoAdminComoBase64(id) {
+  return new Promise((resolve, reject) => {
+    const arquivo = document.getElementById(`assLogoFile-${id}`)?.files?.[0];
+    const preview = document.getElementById(`assLogoPreview-${id}`);
+
+    if (!arquivo) {
+      resolve(preview?.src || "");
+      return;
+    }
+
+    if (!arquivo.type.startsWith("image/")) {
+      reject(new Error("Selecione uma imagem válida."));
+      return;
+    }
+
+    const tamanhoMb = arquivo.size / 1024 / 1024;
+    if (tamanhoMb > 1.5) {
+      reject(new Error("A logo precisa ter até 1,5MB."));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error("Erro ao ler imagem."));
+    reader.readAsDataURL(arquivo);
+  });
+}
+
+async function salvarClienteAssinaturaAdmin(id) {
+  try {
+    const logo_url = await lerLogoAdminComoBase64(id);
+
+    const dados = {
+      plano: document.getElementById(`assPlano-${id}`)?.value || "Básico",
+      status: document.getElementById(`assStatus-${id}`)?.value || "ativo",
+      data_vencimento: document.getElementById(`assVenc-${id}`)?.value || "",
+      valor_mensal: document.getElementById(`assValor-${id}`)?.value || 0,
+      tipo_usuario: document.getElementById(`assTipo-${id}`)?.value || "dono",
+      whatsapp: document.getElementById(`assWhats-${id}`)?.value || "",
+      logo_url: logo_url || ""
+    };
+
+    console.log("Enviando dados do cliente:", id, dados);
+
+    const resposta = await fetch(`/api/admin/usuarios/${id}/plano`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: "same-origin",
+      body: JSON.stringify(dados)
+    });
+
+    const texto = await resposta.text();
+
+    let retorno;
+    try {
+      retorno = JSON.parse(texto);
+    } catch (e) {
+      console.error("Resposta não JSON:", texto);
+      mostrarToast("Erro no servidor. Verifique se o app.py atualizado está rodando.", "erro");
+      return;
+    }
+
+    if (!retorno.ok) {
+      mostrarToast(retorno.mensagem || "Erro ao salvar cliente.", "erro");
+      return;
+    }
+
+    mostrarToast("Cliente atualizado com sucesso.", "sucesso");
+
+    await carregarClientesAssinaturaAdmin();
+    await carregarAssinatura();
+
+  } catch (erro) {
+    console.error(erro);
+    mostrarToast(erro.message || "Erro ao salvar cliente.", "erro");
+  }
+}

@@ -80,15 +80,18 @@
           <button class="nav-item" data-screen="vendas">Vendas</button>
           <button class="nav-item" data-screen="relatorios">Relatórios</button>
           <button class="nav-item" data-screen="historico">Histórico</button>
+          <button class="nav-item" data-screen="assinatura">Assinatura</button>
           <button class="nav-item admin-nav-item" id="navAdmin" data-screen="admin" style="display:none;">Admin SQL</button>
         </nav>
       </div>
 
       <div class="sidebar-footer">
         <div class="mini-card">
-          <span>Sistema online</span>
-          <strong>Banco conectado</strong>
+          <span>Status</span>
+          <strong>Online</strong>
         </div>
+
+        <div id="planoSessionCard" class="mini-card plano-card" style="display:none;"><span>Plano</span><strong id="planoSessionName">-</strong><small id="planoSessionVencimento">-</small></div>
 
         <div id="userSessionCard" class="mini-card mini-card-user" style="display:none;">
           <span>Usuário logado</span>
@@ -108,8 +111,12 @@
             <h1>Painel financeiro</h1>
           </div>
           <div class="dashboard-actions">
-            <div class="date-pill">📅 <span>Visão geral</span></div>
-            <button type="button" class="icon-refresh" onclick="carregarDashboard()" title="Atualizar">↻</button>
+            <div class="date-filter-pill">
+              <span class="date-icon">▣</span>
+              <span>01/06/2024 - 30/06/2024</span>
+              <span class="chevron">⌄</span>
+            </div>
+            <button type="button" class="refresh-btn" onclick="carregarDashboard()" title="Atualizar">↻</button>
           </div>
         </header>
 
@@ -121,19 +128,19 @@
           </div>
 
           <div class="hero-card green">
-            <div class="card-icon">💲</div>
+            <div class="card-icon">$</div>
             <span>Total em aberto</span>
             <strong id="totalAberto">R$ 0,00</strong>
           </div>
 
           <div class="hero-card blue">
-            <div class="card-icon">📈</div>
+            <div class="card-icon">↗</div>
             <span>Lucro empréstimos</span>
             <strong id="lucroTotal">R$ 0,00</strong>
           </div>
 
           <div class="hero-card purple">
-            <div class="card-icon">🕘</div>
+            <div class="card-icon">◷</div>
             <span>Clientes em atraso</span>
             <strong id="clientesEmAtraso">0</strong>
           </div>
@@ -153,7 +160,7 @@
           </div>
 
           <div class="hero-card">
-            <div class="card-icon">↗</div>
+            <div class="card-icon">⌁</div>
             <span>Lucro geral</span>
             <strong id="dashLucroGeral">R$ 0,00</strong>
           </div>
@@ -353,19 +360,19 @@
 
         <section class="hero-grid">
           <div class="hero-card orange">
-            <div class="card-icon">💲</div>
+            <div class="card-icon">$</div>
             <span>Total recebido geral</span>
             <strong id="totalRecebido">R$ 0,00</strong>
           </div>
 
           <div class="hero-card green">
-            <div class="card-icon">📥</div>
+            <div class="card-icon">↓</div>
             <span>Pagamentos empréstimos</span>
             <strong id="totalPagamentos">0</strong>
           </div>
 
           <div class="hero-card blue">
-            <div class="card-icon">⚠</div>
+            <div class="card-icon">!</div>
             <span>Total em atraso</span>
             <strong id="totalAtraso">R$ 0,00</strong>
           </div>
@@ -379,7 +386,7 @@
 
         <section class="hero-grid rel-grid">
           <div class="hero-card">
-            <div class="card-icon">📈</div>
+            <div class="card-icon">↗</div>
             <span>Lucro empréstimos</span>
             <strong id="relLucroEmprestimos">R$ 0,00</strong>
           </div>
@@ -391,7 +398,7 @@
           </div>
 
           <div class="hero-card">
-            <div class="card-icon">↗</div>
+            <div class="card-icon">⌁</div>
             <span>Lucro geral</span>
             <strong id="relLucroGeral">R$ 0,00</strong>
           </div>
@@ -405,7 +412,7 @@
 
         <section class="hero-grid rel-grid">
           <div class="hero-card">
-            <div class="card-icon">📈</div>
+            <div class="card-icon">↗</div>
             <span>Lucro empréstimos semanal</span>
             <strong id="relLucroEmprestimosSemanal">R$ 0,00</strong>
           </div>
@@ -417,13 +424,13 @@
           </div>
 
           <div class="hero-card">
-            <div class="card-icon">↗</div>
+            <div class="card-icon">⌁</div>
             <span>Lucro semanal geral</span>
             <strong id="relLucroSemanal">R$ 0,00</strong>
           </div>
 
           <div class="hero-card">
-            <div class="card-icon">📊</div>
+            <div class="card-icon">▮</div>
             <span>Lucro mensal geral</span>
             <strong id="relLucroMensal">R$ 0,00</strong>
           </div>
@@ -449,7 +456,7 @@
           </div>
 
           <div class="hero-card">
-            <div class="card-icon">⏳</div>
+            <div class="card-icon">◷</div>
             <span>Em aberto</span>
             <strong id="relTotalEmAberto">R$ 0,00</strong>
           </div>
@@ -457,7 +464,12 @@
 
         <div class="panel-card" style="margin-top:20px;">
           <h3>Exportação</h3>
-          <button type="button" class="primary-btn" onclick="gerarPdf()">Gerar PDF</button>
+          <div class="export-grid">
+            <button type="button" class="primary-btn" onclick="gerarPdf()">Gerar PDF</button>
+            <button type="button" class="secondary-btn" onclick="window.open('/api/exportar/clientes','_blank')">Exportar clientes Excel</button>
+            <button type="button" class="secondary-btn" onclick="window.open('/api/exportar/vendas','_blank')">Exportar vendas Excel</button>
+            <button type="button" class="secondary-btn" onclick="window.open('/api/exportar/emprestimos','_blank')">Exportar empréstimos Excel</button>
+          </div>
         </div>
       </section>
 
@@ -550,12 +562,103 @@
         </div>
       </section>
 
+      
+      <section id="screen-assinatura" class="screen">
+        <header class="topbar">
+          <div>
+            <h1>Minha assinatura</h1>
+          </div>
+        </header>
+
+        <section class="hero-grid">
+          <div class="hero-card green">
+            <div class="card-icon">✓</div>
+            <span>Plano atual</span>
+            <strong id="assinaturaPlano">-</strong>
+          </div>
+
+          <div class="hero-card blue">
+            <div class="card-icon">◷</div>
+            <span>Vencimento</span>
+            <strong id="assinaturaVencimento">-</strong>
+          </div>
+
+          <div class="hero-card orange">
+            <div class="card-icon">$</div>
+            <span>Mensalidade</span>
+            <strong id="assinaturaValor">R$ 0,00</strong>
+          </div>
+
+          <div class="hero-card purple">
+            <div class="card-icon">↗</div>
+            <span>Status</span>
+            <strong id="assinaturaStatus">-</strong>
+          </div>
+        </section>
+
+
+        <div class="panel-card assinatura-admin-clientes" id="assinaturaAdminClientes" style="display:none;">
+          <h3>Clientes, planos e personalização</h3>
+          <p class="admin-panel-subtitle">Defina plano, vencimento, mensalidade, permissão, WhatsApp e logo de cada cliente.</p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Plano</th>
+                  <th>Status</th>
+                  <th>Vencimento</th>
+                  <th>Mensalidade</th>
+                  <th>Permissão</th>
+                  <th>WhatsApp</th>
+                  <th>Logo</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="assinaturaTabelaClientes">
+                <tr><td colspan="9">Carregando clientes...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+
+        <div class="panel-grid">
+          <div class="panel-card">
+            <h3>PIX para pagamento</h3>
+            <p class="admin-panel-subtitle">Copie o código PIX e envie para o cliente pagar a mensalidade.</p>
+            <textarea id="assinaturaPix" readonly placeholder="PIX copia e cola aparecerá aqui"></textarea>
+            <button type="button" class="primary-btn" onclick="copiarPixAssinatura()">Copiar PIX</button>
+          </div>
+
+          <div class="panel-card">
+            <h3>Personalização do cliente</h3>
+            <input type="file" id="minhaLogoArquivo" accept="image/*">
+
+            <div class="logo-preview-box">
+              <img id="logoPreviewCliente" src="" alt="Logo cliente" style="display:none;">
+            </div>
+            <input type="text" id="meuWhatsapp" placeholder="WhatsApp do cliente">
+            <button type="button" class="primary-btn" onclick="salvarMinhaConta()">Salvar personalização</button>
+          </div>
+        </div>
+      </section>
+
+
       <section id="screen-admin" class="screen">
         <header class="topbar">
           <div>
             <h1>Painel técnico SQL</h1>
           </div>
         </header>
+
+        
+        <div class="panel-card admin-planos-card">
+          <h3>Controle de planos e vencimentos</h3>
+          <p class="admin-panel-subtitle">Gerencie mensalidades, vencimentos e bloqueios automáticos dos clientes.</p>
+          <div class="table-wrap"><table><thead><tr><th>ID</th><th>Usuário</th><th>Plano</th><th>Status</th><th>Vencimento</th><th>Mensalidade</th><th>Dados</th><th>Ações</th></tr></thead><tbody id="adminTabelaUsuarios"><tr><td colspan="8">Carregando usuários...</td></tr></tbody></table></div>
+        </div>
 
         <div class="panel-card admin-panel-header">
           <h3>Console administrativo</h3>
@@ -621,6 +724,10 @@
         </div>
       </section>
 
+    <footer class="financepro-footer">
+          <span>© 2024 FinancePro - Todos os direitos reservados.</span>
+          <span>Versão 2.0.0</span>
+        </footer>
     </main>
   </div>
 

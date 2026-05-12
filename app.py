@@ -4,6 +4,9 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
+import csv
+import io
+import urllib.parse
 
 from flask import Flask, render_template, request, jsonify, send_file, session
 
@@ -257,6 +260,199 @@ def registrar_backup_log(tipo, detalhes=""):
     except Exception:
         pass
 
+
+# ---------------- PLANOS / ASSINATURA ----------------
+
+def hoje_data():
+    return datetime.now().date()
+
+def data_para_date(valor):
+    if not valor:
+        return None
+    valor = str(valor).strip()
+    for formato in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(valor[:10], formato).date()
+        except Exception:
+            pass
+    return None
+
+def dias_restantes_plano(data_vencimento):
+    data = data_para_date(data_vencimento)
+    if not data:
+        return 0
+    return (data - hoje_data()).days
+
+def usuario_plano_vencido(usuario_id):
+    if not usuario_id:
+        return False, None
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT status, data_vencimento FROM usuarios WHERE id = %s", (usuario_id,))
+    linha = cursor.fetchone()
+    cursor.close(); conn.close()
+    if not linha:
+        return True, "Usuário não encontrado."
+    status = (linha[0] or "ativo").strip().lower()
+    data_vencimento = linha[1]
+    if status in ("bloqueado", "inativo", "vencido"):
+        return True, "Seu acesso está bloqueado. Fale com o administrador."
+    data = data_para_date(data_vencimento)
+    if data and data < hoje_data():
+        return True, "Seu plano venceu. Fale com o administrador para renovar o acesso."
+    return False, None
+
+def exigir_plano_ativo():
+    if usuario_e_admin():
+        return None
+    bloqueado, mensagem = usuario_plano_vencido(usuario_id_logado())
+    if bloqueado:
+        session.clear()
+        return jsonify({"ok": False, "bloqueado": True, "mensagem": mensagem or "Acesso bloqueado."}), 403
+    return None
+
+def exigir_acesso():
+    ver = exigir_login()
+    if ver:
+        return ver
+    plano = exigir_plano_ativo()
+    if plano:
+        return plano
+    return None
+
+def atualizar_status_vencidos():
+    try:
+        conn = conectar(); cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE usuarios SET status = 'vencido'
+            WHERE COALESCE(status, 'ativo') = 'ativo'
+              AND data_vencimento IS NOT NULL
+              AND data_vencimento ~ '^\\d{2}/\\d{2}/\\d{4}$'
+              AND TO_DATE(data_vencimento, 'DD/MM/YYYY') < CURRENT_DATE
+        """)
+        conn.commit(); cursor.close(); conn.close()
+    except Exception:
+        pass
+
+
+# ---------------- PIX / PERMISSÕES / AUDITORIA / EXCEL ----------------
+
+PIX_CHAVE_PADRAO = os.environ.get("FINANCEPRO_PIX_CHAVE", "")
+PIX_NOME_RECEBEDOR = os.environ.get("FINANCEPRO_PIX_NOME", "FINANCEPRO")
+PIX_CIDADE_RECEBEDOR = os.environ.get("FINANCEPRO_PIX_CIDADE", "RECIFE")
+
+
+def usuario_tipo_logado():
+    return session.get("tipo_usuario") or "dono"
+
+
+def registrar_auditoria(acao, tabela="", registro_id="", detalhes=""):
+    try:
+        conn = conectar()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO auditoria (usuario_id, usuario, acao, tabela, registro_id, detalhes, ip)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (
+            usuario_id_logado(),
+            usuario_logado() or "desconhecido",
+            acao,
+            tabela or "",
+            str(registro_id or ""),
+            detalhes or "",
+            request.remote_addr or ""
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception:
+        pass
+
+
+def exigir_permissao_escrita():
+    ver = exigir_permissao_escrita()
+    if ver:
+        return ver
+
+    if usuario_e_admin():
+        return None
+
+    tipo = usuario_tipo_logado()
+    if tipo == "visualizador":
+        return jsonify({"ok": False, "mensagem": "Seu usuário é somente visualizador."}), 403
+
+    return None
+
+
+def emv(id_, value):
+    value = str(value)
+    return f"{id_}{len(value):02d}{value}"
+
+
+def crc16_ccitt(payload):
+    polinomio = 0x1021
+    resultado = 0xFFFF
+    for byte in payload.encode("utf-8"):
+        resultado ^= byte << 8
+        for _ in range(8):
+            if resultado & 0x8000:
+                resultado = ((resultado << 1) ^ polinomio) & 0xFFFF
+            else:
+                resultado = (resultado << 1) & 0xFFFF
+    return f"{resultado:04X}"
+
+
+def gerar_pix_copia_cola(chave, nome, cidade, valor, descricao="FinancePro"):
+    chave = (chave or PIX_CHAVE_PADRAO or "").strip()
+    nome = (nome or PIX_NOME_RECEBEDOR or "FINANCEPRO").strip()[:25]
+    cidade = (cidade or PIX_CIDADE_RECEBEDOR or "RECIFE").strip()[:15]
+    descricao = (descricao or "FinancePro").strip()[:60]
+
+    if not chave:
+        return ""
+
+    merchant_account = emv("00", "BR.GOV.BCB.PIX") + emv("01", chave)
+    if descricao:
+        merchant_account += emv("02", descricao)
+
+    valor = float(valor or 0)
+
+    payload = (
+        emv("00", "01") +
+        emv("26", merchant_account) +
+        emv("52", "0000") +
+        emv("53", "986") +
+        (emv("54", f"{valor:.2f}") if valor > 0 else "") +
+        emv("58", "BR") +
+        emv("59", nome) +
+        emv("60", cidade) +
+        emv("62", emv("05", "***"))
+    )
+
+    payload_crc = payload + "6304"
+    return payload_crc + crc16_ccitt(payload_crc)
+
+
+def gerar_csv_response(nome_arquivo, cabecalho, linhas):
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow(cabecalho)
+
+    for linha in linhas:
+        writer.writerow(linha)
+
+    mem = io.BytesIO()
+    mem.write(output.getvalue().encode("utf-8-sig"))
+    mem.seek(0)
+
+    return send_file(
+        mem,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=nome_arquivo
+    )
+
+
 # ---------------- FRONT ----------------
 
 @app.route("/")
@@ -268,11 +464,29 @@ def home():
 
 @app.route("/api/sessao", methods=["GET"])
 def obter_sessao():
+    plano_info = {}
+    if usuario_logado() and not usuario_e_admin() and usuario_id_logado():
+        try:
+            conn = conectar(); cursor = conn.cursor()
+            cursor.execute("SELECT plano, status, data_vencimento, valor_mensal FROM usuarios WHERE id = %s", (usuario_id_logado(),))
+            linha = cursor.fetchone()
+            cursor.close(); conn.close()
+            if linha:
+                plano_info = {
+                    "plano": linha[0] or "Básico",
+                    "status": linha[1] or "ativo",
+                    "data_vencimento": linha[2] or "",
+                    "valor_mensal": float(linha[3] or 0),
+                    "dias_restantes": dias_restantes_plano(linha[2])
+                }
+        except Exception:
+            plano_info = {}
     return jsonify({
         "logado": bool(usuario_logado()),
         "usuario": usuario_logado() or "",
         "usuario_id": usuario_id_logado(),
-        "is_admin": usuario_e_admin()
+        "is_admin": usuario_e_admin(),
+        **plano_info
     })
 
 
@@ -309,11 +523,13 @@ def criar_usuario():
             conn.close()
             return jsonify({"ok": False, "mensagem": "Esse usuário já existe. Escolha outro nome."})
 
+        data_vencimento = (datetime.now() + timedelta(days=7)).strftime("%d/%m/%Y")
+
         cursor.execute("""
-            INSERT INTO usuarios (usuario, senha)
-            VALUES (%s, %s)
+            INSERT INTO usuarios (usuario, senha, plano, status, data_vencimento, valor_mensal)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id
-        """, (usuario, senha))
+        """, (usuario, senha, "Teste grátis", "ativo", data_vencimento, 0))
 
         novo_id = cursor.fetchone()[0]
         conn.commit()
@@ -402,7 +618,11 @@ def login():
         "mensagem": "Login realizado com sucesso.",
         "is_admin": False,
         "usuario": linha[1],
-        "usuario_id": linha[0]
+        "usuario_id": linha[0],
+        "plano": linha[2] or "Básico",
+        "status": linha[3] or "ativo",
+        "data_vencimento": linha[4] or "",
+        "valor_mensal": float(linha[5] or 0)
     })
 
 
@@ -436,7 +656,7 @@ def restaurar_banco():
 
 @app.route("/api/resumo", methods=["GET"])
 def resumo():
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -645,7 +865,7 @@ def resumo():
 
 @app.route("/api/dados-grafico-dashboard", methods=["GET"])
 def dados_grafico_dashboard():
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -695,7 +915,7 @@ def dashboard_completo():
 
 @app.route("/api/clientes", methods=["GET"])
 def lista_clientes():
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -727,7 +947,7 @@ def lista_clientes():
 
 @app.route("/api/clientes", methods=["POST"])
 def cadastrar_cliente():
-    ver = exigir_login()
+    ver = exigir_permissao_escrita()
     if ver:
         return ver
 
@@ -754,12 +974,13 @@ def cadastrar_cliente():
     conn.commit()
     cursor.close()
     conn.close()
+    registrar_auditoria("CRIAR", "clientes", "", f"Cliente: {nome}")
     return jsonify({"ok": True, "mensagem": "Cliente cadastrado com sucesso."})
 
 
 @app.route("/api/clientes/<int:cliente_id>", methods=["GET"])
 def obter_cliente(cliente_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -794,7 +1015,7 @@ def obter_cliente(cliente_id):
 
 @app.route("/api/clientes/<int:cliente_id>", methods=["PUT"])
 def editar_cliente(cliente_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -821,6 +1042,7 @@ def editar_cliente(cliente_id):
     cursor.close()
     conn.close()
 
+    registrar_auditoria("EDITAR", "clientes", cliente_id, f"Cliente: {nome}")
     return jsonify({"ok": True, "mensagem": "Cliente atualizado com sucesso."})
 
 
@@ -828,7 +1050,7 @@ def editar_cliente(cliente_id):
 
 @app.route("/api/emprestimos", methods=["GET"])
 def lista_emprestimos():
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -866,7 +1088,7 @@ def lista_emprestimos():
 
 @app.route("/api/emprestimos", methods=["POST"])
 def criar_emprestimo():
-    ver = exigir_login()
+    ver = exigir_permissao_escrita()
     if ver:
         return ver
 
@@ -914,12 +1136,13 @@ def criar_emprestimo():
     cursor.close()
     conn.close()
 
+    registrar_auditoria("CRIAR", "emprestimos", "", f"Valor: {valor}")
     return jsonify({"ok": True, "mensagem": "Empréstimo criado com sucesso."})
 
 
 @app.route("/api/emprestimos/<int:emprestimo_id>/quitar", methods=["POST"])
 def quitar_emprestimo(emprestimo_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -981,7 +1204,7 @@ def quitar_emprestimo(emprestimo_id):
 
 @app.route("/api/emprestimos/<int:emprestimo_id>/pagar-juros", methods=["POST"])
 def pagar_somente_juros(emprestimo_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1053,7 +1276,7 @@ def pagar_somente_juros(emprestimo_id):
 
 @app.route("/api/emprestimos/<int:emprestimo_id>/trocar-taxa", methods=["POST"])
 def alterar_taxa_emprestimo(emprestimo_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1105,7 +1328,7 @@ def alterar_taxa_emprestimo(emprestimo_id):
 
 @app.route("/api/vendas", methods=["GET"])
 def lista_vendas():
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1149,7 +1372,7 @@ def lista_vendas():
 
 @app.route("/api/vendas", methods=["POST"])
 def cadastrar_venda():
-    ver = exigir_login()
+    ver = exigir_permissao_escrita()
     if ver:
         return ver
 
@@ -1184,12 +1407,13 @@ def cadastrar_venda():
     cursor.close()
     conn.close()
 
+    registrar_auditoria("CRIAR", "vendas", "", f"Produto: {produto} | Valor: {valor_venda}")
     return jsonify({"ok": True, "mensagem": "Venda registrada com sucesso."})
 
 
 @app.route("/api/vendas/<int:venda_id>", methods=["GET"])
 def obter_venda(venda_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1225,7 +1449,7 @@ def obter_venda(venda_id):
 
 @app.route("/api/vendas/<int:venda_id>", methods=["PUT"])
 def editar_venda(venda_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1261,12 +1485,13 @@ def editar_venda(venda_id):
     cursor.close()
     conn.close()
 
+    registrar_auditoria("EDITAR", "vendas", venda_id, f"Produto: {produto}")
     return jsonify({"ok": True, "mensagem": "Venda atualizada com sucesso."})
 
 
 @app.route("/api/vendas/<int:venda_id>", methods=["DELETE"])
 def excluir_venda(venda_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1280,6 +1505,7 @@ def excluir_venda(venda_id):
     cursor.close()
     conn.close()
 
+    registrar_auditoria("EXCLUIR", "vendas", venda_id, "Venda excluída")
     return jsonify({"ok": True, "mensagem": "Venda excluída com sucesso."})
 
 
@@ -1287,7 +1513,7 @@ def excluir_venda(venda_id):
 
 @app.route("/api/historico/pagamentos", methods=["GET"])
 def historico_pagamentos():
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1327,7 +1553,7 @@ def historico_pagamentos():
 
 @app.route("/api/historico/quitados", methods=["GET"])
 def historico_quitados():
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1370,7 +1596,7 @@ def historico_quitados():
 
 @app.route("/api/recibo/venda/<int:venda_id>", methods=["GET"])
 def recibo_venda(venda_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1408,7 +1634,7 @@ def recibo_venda(venda_id):
 
 @app.route("/api/recibo/pagamento/<int:pagamento_id>", methods=["GET"])
 def recibo_pagamento(pagamento_id):
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1602,7 +1828,7 @@ def listar_logs_admin():
 
 @app.route("/api/grafico-financeiro", methods=["GET"])
 def grafico_financeiro():
-    ver = exigir_login()
+    ver = exigir_acesso()
     if ver:
         return ver
 
@@ -1695,31 +1921,60 @@ def admin_listar_usuarios():
     if ver:
         return ver
 
+    try:
+        atualizar_status_vencidos()
+    except Exception:
+        pass
+
     conn = conectar()
     cursor = conn.cursor()
+
     cursor.execute("""
-        SELECT u.id, u.usuario, COALESCE(u.ativo, TRUE), COALESCE(u.data_criacao, ''), COALESCE(u.ultimo_login, ''),
-               (SELECT COUNT(*) FROM clientes c WHERE c.usuario_id = u.id) AS total_clientes,
-               (SELECT COUNT(*) FROM emprestimos e WHERE e.usuario_id = u.id) AS total_emprestimos,
-               (SELECT COUNT(*) FROM vendas v WHERE v.usuario_id = u.id) AS total_vendas
+        SELECT
+            u.id,
+            u.usuario,
+            COALESCE(u.plano, 'Básico') AS plano,
+            COALESCE(u.status, 'ativo') AS status,
+            COALESCE(u.data_vencimento, '') AS data_vencimento,
+            COALESCE(u.valor_mensal, 0) AS valor_mensal,
+            COALESCE(u.logo_url, '') AS logo_url,
+            COALESCE(u.whatsapp, '') AS whatsapp,
+            COALESCE(u.tipo_usuario, 'dono') AS tipo_usuario,
+            COALESCE(COUNT(DISTINCT c.id), 0) AS total_clientes,
+            COALESCE(COUNT(DISTINCT e.id), 0) AS total_emprestimos,
+            COALESCE(COUNT(DISTINCT v.id), 0) AS total_vendas
         FROM usuarios u
-        ORDER BY u.id ASC
+        LEFT JOIN clientes c ON c.usuario_id = u.id
+        LEFT JOIN emprestimos e ON e.usuario_id = u.id
+        LEFT JOIN vendas v ON v.usuario_id = u.id
+        GROUP BY u.id, u.usuario, u.plano, u.status, u.data_vencimento, u.valor_mensal, u.logo_url, u.whatsapp, u.tipo_usuario
+        ORDER BY u.id DESC
     """)
-    usuarios = cursor.fetchall()
+
+    dados = cursor.fetchall()
+
     cursor.close()
     conn.close()
 
-    return jsonify({"ok": True, "usuarios": [{
-        "id": item[0],
-        "usuario": item[1],
-        "ativo": bool(item[2]),
-        "data_criacao": item[3],
-        "ultimo_login": item[4],
-        "total_clientes": item[5],
-        "total_emprestimos": item[6],
-        "total_vendas": item[7]
-    } for item in usuarios]})
+    usuarios = []
+    for item in dados:
+        usuarios.append({
+            "id": item[0],
+            "usuario": item[1],
+            "plano": item[2],
+            "status": item[3],
+            "data_vencimento": item[4],
+            "valor_mensal": float(item[5] or 0),
+            "logo_url": item[6] or "",
+            "whatsapp": item[7] or "",
+            "tipo_usuario": item[8] or "dono",
+            "total_clientes": item[9],
+            "total_emprestimos": item[10],
+            "total_vendas": item[11],
+            "dias_restantes": dias_restantes_plano(item[4])
+        })
 
+    return jsonify({"ok": True, "usuarios": usuarios})
 
 @app.route("/api/admin/usuarios/<int:usuario_id>/status", methods=["POST"])
 def admin_alterar_status_usuario(usuario_id):
@@ -1803,6 +2058,360 @@ def admin_backup_json():
     resposta = app.response_class(conteudo, mimetype="application/json")
     resposta.headers["Content-Disposition"] = f"attachment; filename={nome}"
     return resposta
+
+
+
+# ---------------- COBRANÇAS / PIX / EXCEL / CONFIGURAÇÃO ----------------
+
+@app.route("/api/minha-assinatura", methods=["GET"])
+def minha_assinatura():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if usuario_e_admin():
+        cursor.execute("SELECT COUNT(*) FROM usuarios WHERE usuario <> 'ADM'")
+        total_clientes = cursor.fetchone()[0] or 0
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(valor_mensal), 0)
+            FROM usuarios
+            WHERE usuario <> 'ADM'
+              AND COALESCE(status, 'ativo') = 'ativo'
+        """)
+        faturamento = float(cursor.fetchone()[0] or 0)
+
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM usuarios
+            WHERE COALESCE(status, 'ativo') = 'vencido'
+        """)
+        vencidos = cursor.fetchone()[0] or 0
+
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM usuarios
+            WHERE COALESCE(status, 'ativo') = 'ativo'
+              AND usuario <> 'ADM'
+        """)
+        ativos = cursor.fetchone()[0] or 0
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "ok": True,
+            "admin": True,
+            "total_clientes": total_clientes,
+            "faturamento": faturamento,
+            "vencidos": vencidos,
+            "ativos": ativos,
+            "pix": gerar_pix_copia_cola(
+                PIX_CHAVE_PADRAO,
+                PIX_NOME_RECEBEDOR,
+                PIX_CIDADE_RECEBEDOR,
+                faturamento,
+                "FinancePro Mensalidades"
+            )
+        })
+
+    cursor.execute("""
+        SELECT usuario, plano, status, data_vencimento, valor_mensal, logo_url, whatsapp
+        FROM usuarios
+        WHERE id = %s
+    """, (usuario_id_logado(),))
+
+    linha = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    if not linha:
+        return jsonify({"ok": False, "mensagem": "Usuário não encontrado."})
+
+    pix = gerar_pix_copia_cola(
+        PIX_CHAVE_PADRAO,
+        PIX_NOME_RECEBEDOR,
+        PIX_CIDADE_RECEBEDOR,
+        float(linha[4] or 0),
+        f"FinancePro {linha[1] or 'Plano'}"
+    )
+
+    return jsonify({
+        "ok": True,
+        "usuario": linha[0],
+        "plano": linha[1] or "Básico",
+        "status": linha[2] or "ativo",
+        "data_vencimento": linha[3] or "",
+        "valor_mensal": float(linha[4] or 0),
+        "dias_restantes": dias_restantes_plano(linha[3]),
+        "pix": pix,
+        "logo_url": linha[5] or "",
+        "whatsapp": linha[6] or ""
+    })
+
+@app.route("/api/minha-conta", methods=["PUT"])
+def atualizar_minha_conta():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    if usuario_e_admin():
+        return jsonify({"ok": False, "mensagem": "Admin não possui personalização de conta."})
+
+    dados = request.get_json() or {}
+    logo_url = (dados.get("logo_url") or "").strip()
+    whatsapp = (dados.get("whatsapp") or "").strip()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET logo_url = %s,
+            whatsapp = %s
+        WHERE id = %s
+    """, (logo_url, whatsapp, usuario_id_logado()))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    registrar_auditoria("EDITAR", "usuarios", usuario_id_logado(), "Atualizou dados da conta")
+
+    return jsonify({"ok": True, "mensagem": "Conta atualizada com sucesso."})
+
+
+@app.route("/api/exportar/clientes", methods=["GET"])
+def exportar_clientes_csv():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    where_c, params_c = filtro_usuario_sql("c")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(f"""
+        SELECT c.id, c.nome, c.telefone, c.cpf, c.endereco, c.data_contratacao, c.status
+        FROM clientes c
+        WHERE {where_c}
+        ORDER BY c.id ASC
+    """, params_c)
+
+    dados = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return gerar_csv_response(
+        "financepro_clientes.csv",
+        ["ID", "Nome", "Telefone", "CPF", "Endereço", "Data contratação", "Status"],
+        dados
+    )
+
+
+@app.route("/api/exportar/vendas", methods=["GET"])
+def exportar_vendas_csv():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    where_v, params_v = filtro_usuario_sql("v")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(f"""
+        SELECT v.id, v.produto, v.cliente, v.valor_venda, v.valor_custo, v.lucro, v.data_venda, v.observacao
+        FROM vendas v
+        WHERE {where_v}
+        ORDER BY v.id DESC
+    """, params_v)
+
+    dados = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return gerar_csv_response(
+        "financepro_vendas.csv",
+        ["ID", "Produto", "Cliente", "Valor venda", "Custo", "Lucro", "Data", "Observação"],
+        dados
+    )
+
+
+@app.route("/api/exportar/emprestimos", methods=["GET"])
+def exportar_emprestimos_csv():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    where_e, params_e = filtro_usuario_sql("e")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(f"""
+        SELECT e.id, c.nome, e.valor, e.taxa, e.juros, e.total, e.data_inicio, e.data_vencimento, e.status
+        FROM emprestimos e
+        JOIN clientes c ON c.id = e.cliente_id
+        WHERE {where_e}
+        ORDER BY e.id DESC
+    """, params_e)
+
+    dados = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return gerar_csv_response(
+        "financepro_emprestimos.csv",
+        ["ID", "Cliente", "Valor", "Taxa", "Juros", "Total", "Início", "Vencimento", "Status"],
+        dados
+    )
+
+
+@app.route("/api/admin/auditoria", methods=["GET"])
+def admin_auditoria():
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, usuario_id, usuario, acao, tabela, registro_id, detalhes, data_hora, ip
+        FROM auditoria
+        ORDER BY id DESC
+        LIMIT 200
+    """)
+
+    dados = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "ok": True,
+        "auditoria": [
+            {
+                "id": item[0],
+                "usuario_id": item[1],
+                "usuario": item[2],
+                "acao": item[3],
+                "tabela": item[4],
+                "registro_id": item[5],
+                "detalhes": item[6],
+                "data_hora": item[7],
+                "ip": item[8]
+            }
+            for item in dados
+        ]
+    })
+
+
+@app.route("/api/admin/usuarios/<int:usuario_id>/tipo", methods=["PUT"])
+def admin_atualizar_tipo_usuario(usuario_id):
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    dados = request.get_json() or {}
+    tipo_usuario = (dados.get("tipo_usuario") or "dono").strip().lower()
+
+    if tipo_usuario not in ("dono", "funcionario", "visualizador"):
+        return jsonify({"ok": False, "mensagem": "Tipo de usuário inválido."})
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET tipo_usuario = %s
+        WHERE id = %s
+    """, (tipo_usuario, usuario_id))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    registrar_log_admin("ATUALIZAR_TIPO_USUARIO", "", f"Usuário ID {usuario_id}: {tipo_usuario}")
+
+    return jsonify({"ok": True, "mensagem": "Permissão atualizada com sucesso."})
+
+
+
+@app.route("/api/admin/usuarios/<int:usuario_id>/plano", methods=["PUT"])
+def admin_atualizar_plano_usuario(usuario_id):
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    dados = request.get_json() or {}
+
+    plano = (dados.get("plano") or "Básico").strip()
+    status = (dados.get("status") or "ativo").strip().lower()
+    data_vencimento = (dados.get("data_vencimento") or "").strip()
+    logo_url = (dados.get("logo_url") or "").strip()
+    whatsapp = (dados.get("whatsapp") or "").strip()
+    tipo_usuario = (dados.get("tipo_usuario") or "dono").strip().lower()
+
+    try:
+        valor_mensal = float(dados.get("valor_mensal") or 0)
+    except Exception:
+        return jsonify({"ok": False, "mensagem": "Valor mensal inválido."})
+
+    if status not in ("ativo", "bloqueado", "vencido", "inativo"):
+        return jsonify({"ok": False, "mensagem": "Status inválido."})
+
+    if tipo_usuario not in ("dono", "funcionario", "visualizador"):
+        return jsonify({"ok": False, "mensagem": "Permissão inválida."})
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET plano = %s,
+            status = %s,
+            data_vencimento = %s,
+            valor_mensal = %s,
+            logo_url = %s,
+            whatsapp = %s,
+            tipo_usuario = %s
+        WHERE id = %s
+    """, (
+        plano,
+        status,
+        data_vencimento,
+        valor_mensal,
+        logo_url,
+        whatsapp,
+        tipo_usuario,
+        usuario_id
+    ))
+
+    linhas_afetadas = cursor.rowcount
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+    if linhas_afetadas == 0:
+        return jsonify({"ok": False, "mensagem": "Cliente não encontrado."})
+
+    try:
+        registrar_log_admin("ATUALIZAR_CLIENTE_ASSINATURA", "", f"Cliente ID {usuario_id} atualizado.")
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "mensagem": "Cliente atualizado com sucesso."})
 
 
 if __name__ == "__main__":
