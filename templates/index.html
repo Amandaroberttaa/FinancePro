@@ -193,7 +193,7 @@
           <h3>Evolução financeira dos últimos meses</h3>
           <p style="opacity:0.75; margin-bottom:12px;">Entradas e lucros separados por mês</p>
           <div class="chart-wrap">
-            <canvas id="graficoFinanceiro"></canvas>
+            <canvas id="graficoBarrasAvancadoDashboard"></canvas>
           </div>
         </section>
       </section>
@@ -367,6 +367,20 @@
             <h1>Relatórios</h1>
           </div>
         </header>
+
+        <div class="panel-card professional-report-card">
+          <h3>Relatório PDF profissional</h3>
+          <p class="admin-panel-subtitle">Gere um PDF profissional com resumo financeiro, vendas, empréstimos e lucro geral.</p>
+          <button type="button" class="primary-btn" onclick="baixarRelatorioProfissional()">Baixar PDF profissional</button>
+        </div>
+
+        <div class="chart-card professional-chart-card">
+          <h3>Gráfico de barras avançado</h3>
+          <div class="chart-wrap">
+            <canvas id="graficoBarrasAvancadoRelatorios"></canvas>
+          </div>
+        </div>
+
 
         <section class="hero-grid">
           <div class="hero-card orange">

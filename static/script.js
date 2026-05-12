@@ -375,34 +375,7 @@ function renderizarGraficoStatus(dados) {
 
 
 async function carregarGraficoFinanceiro() {
-  const canvas = document.getElementById("graficoFinanceiro");
-  if (!canvas || typeof Chart === "undefined") return;
-
-  const dados = await apiGet("/api/grafico-financeiro");
-  const labels = dados.map(item => item.mes);
-
-  if (graficoFinanceiro) graficoFinanceiro.destroy();
-
-  graficoFinanceiro = new Chart(canvas, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        { label: "Entradas", data: dados.map(item => item.entrada_total || 0) },
-        { label: "Lucro", data: dados.map(item => item.lucro_total || 0) }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "bottom" }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    }
-  });
+  await carregarGraficoBarrasAvancadoLocal("graficoBarrasAvancadoDashboard", "dashboard");
 }
 
 async function solicitarRecuperacaoSenha() {
@@ -575,7 +548,7 @@ async function carregarDashboard() {
 
   renderizarResumo(dados.resumo || {});
   renderizarGraficoStatus(dados.grafico || []);
-  await carregarGraficoFinanceiro();
+  await carregarGraficoBarrasAvancadoLocal("graficoBarrasAvancadoDashboard", "dashboard");
 }
 
 async function carregarResumo() {
@@ -729,6 +702,7 @@ async function carregarEmprestimos() {
       <td><span class="status-tag ${classeStatus(item.status)}">${item.status}</span></td>
       <td>
         <button class="action-btn" onclick="confirmarQuitado(${item.id})">Quitar</button>
+        <button class="action-btn secondary" onclick="confirmarReceberValor(${item.id}, ${item.total})">Receber valor</button>
         <button class="action-btn secondary" onclick="confirmarJuros(${item.id})">Pagar juros</button>
         <button class="action-btn warning" onclick="alterarTaxaEmprestimo(${item.id}, ${item.taxa})">
           ${Number(item.taxa) === 20 ? "Trocar p/ 30%" : "Trocar p/ 20%"}
@@ -796,6 +770,51 @@ async function confirmarJuros(id) {
   await carregarDashboard();
   await carregarRelatorios();
 }
+
+
+async function confirmarReceberValor(id, saldoAtual) {
+  const valorDigitado = prompt(`Digite o valor recebido. Saldo atual: ${formatarMoeda(saldoAtual)}`);
+
+  if (valorDigitado === null) return;
+
+  const valorLimpo = String(valorDigitado)
+    .replace("R$", "")
+    .replace(/\./g, "")
+    .replace(",", ".")
+    .trim();
+
+  const valor = Number(valorLimpo);
+
+  if (!valor || valor <= 0) {
+    mostrarToast("Informe um valor recebido válido.", "erro");
+    return;
+  }
+
+  if (valor > Number(saldoAtual || 0)) {
+    mostrarToast("O valor recebido não pode ser maior que o saldo em aberto.", "erro");
+    return;
+  }
+
+  const confirmar = confirm(`Confirmar recebimento de ${formatarMoeda(valor)}?`);
+  if (!confirmar) return;
+
+  const resposta = await apiPost(`/api/emprestimos/${id}/pagar-valor`, {
+    valor_pago: valor
+  });
+
+  if (!resposta.ok) {
+    mostrarToast(resposta.mensagem || "Erro ao receber valor.", "erro");
+    return;
+  }
+
+  mostrarToast(resposta.mensagem || "Valor recebido com sucesso.", "sucesso");
+
+  await carregarEmprestimos();
+  await carregarDashboard();
+  await carregarRelatorios();
+  await carregarHistoricos();
+}
+
 
 async function alterarTaxaEmprestimo(id, taxaAtual) {
   const novaTaxa = Number(taxaAtual) === 20 ? 30 : 20;
@@ -1012,7 +1031,8 @@ function renderizarHistoricoPagamentos(pagamentos) {
 
   tabela.innerHTML = "";
   pagamentos.forEach(item => {
-    const tipo = String(item.tipo || "").toLowerCase() === "juros" ? "Juros" : "Quitação";
+    const tipoRaw = String(item.tipo || "").toLowerCase();
+    const tipo = tipoRaw === "juros" ? "Juros" : (tipoRaw === "parcial" ? "Parcial" : "Quitação");
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${item.id}</td>
@@ -1081,6 +1101,7 @@ function renderizarHistoricoVendas(vendas) {
 
 async function carregarRelatorios() {
   const rel = await apiGet("/api/relatorio-resumo");
+  await carregarGraficoBarrasAvancadoLocal("graficoBarrasAvancadoRelatorios", "relatorios");
 
   if (document.getElementById("totalRecebido")) document.getElementById("totalRecebido").innerText = formatarMoeda(rel.total_recebido);
   if (document.getElementById("totalPagamentos")) document.getElementById("totalPagamentos").innerText = rel.total_pagamentos;
@@ -1751,3 +1772,91 @@ async function bloquearUsuario(id) {
   await alterarStatusUsuario(id, "bloqueado");
 }
 
+
+
+
+// ---------------- RECURSOS PROFISSIONAIS ----------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ---------------- GRÁFICO DE BARRAS AVANÇADO / RELATÓRIO PROFISSIONAL ----------------
+
+let graficoBarrasDashboard = null;
+let graficoBarrasRelatorios = null;
+
+async function carregarGraficoBarrasAvancadoLocal(canvasId, tipo = "dashboard") {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || typeof Chart === "undefined") return;
+
+  const resposta = await apiGet("/api/grafico-barras-avancado");
+
+  if (!resposta.ok) {
+    mostrarToast(resposta.mensagem || "Erro ao carregar gráfico avançado.", "erro");
+    return;
+  }
+
+  const dados = resposta.dados || [];
+
+  if (tipo === "dashboard" && graficoBarrasDashboard) {
+    graficoBarrasDashboard.destroy();
+  }
+
+  if (tipo === "relatorios" && graficoBarrasRelatorios) {
+    graficoBarrasRelatorios.destroy();
+  }
+
+  const novoGrafico = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: dados.map(item => item.mes),
+      datasets: [
+        {
+          label: "Receita de vendas",
+          data: dados.map(item => item.receita || 0)
+        },
+        {
+          label: "Recebido empréstimos",
+          data: dados.map(item => item.recebido || 0)
+        },
+        {
+          label: "Lucro geral",
+          data: dados.map(item => item.lucro || 0)
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "bottom" }
+      },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+
+  if (tipo === "dashboard") graficoBarrasDashboard = novoGrafico;
+  if (tipo === "relatorios") graficoBarrasRelatorios = novoGrafico;
+}
+
+function baixarRelatorioProfissional() {
+  window.open("/api/relatorio-profissional", "_blank");
+}

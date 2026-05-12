@@ -1139,3 +1139,82 @@ td{
     height:48px;
   }
 }
+
+
+
+/* ===== RECURSOS PROFISSIONAIS ===== */
+
+.nav-item[data-screen="profissional"]::before{
+  content:"◆";
+}
+
+.notificacao-item,
+.empresa-item{
+  padding:14px;
+  border-radius:12px;
+  background:rgba(7,25,48,.78);
+  border:1px solid rgba(148,163,184,.16);
+  margin-bottom:10px;
+}
+
+.notificacao-item strong,
+.empresa-item strong{
+  display:block;
+  color:#fff;
+  margin-bottom:6px;
+}
+
+.notificacao-item span,
+.empresa-item span{
+  color:#9fb0c9;
+  font-size:13px;
+  line-height:1.45;
+}
+
+.notificacao-item.aviso{
+  border-color:rgba(245,158,11,.35);
+}
+
+.notificacao-item.erro{
+  border-color:rgba(239,68,68,.35);
+}
+
+.notificacao-actions{
+  margin-top:10px;
+}
+
+@media (max-width:900px){
+  #screen-profissional .panel-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+
+
+/* ===== RELATÓRIOS + DASHBOARD COM GRÁFICO DE BARRAS AVANÇADO ===== */
+
+.professional-report-card{
+  margin-bottom:18px;
+}
+
+.professional-chart-card{
+  margin-bottom:18px;
+}
+
+#screen-dashboard .chart-card{
+  margin-top:18px;
+}
+
+@media (max-width:900px){
+  .professional-chart-card,
+  #screen-dashboard .chart-card{
+    min-height:360px;
+  }
+}
+
+
+
+/* ===== PAGAMENTO PARCIAL / RECEBER VALOR ===== */
+.action-btn.secondary{
+  white-space:nowrap;
+}

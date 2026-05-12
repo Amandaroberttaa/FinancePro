@@ -490,6 +490,179 @@ def gerar_csv_response(nome_arquivo, cabecalho, linhas):
     )
 
 
+
+# ---------------- RECURSOS PROFISSIONAIS ----------------
+
+def empresa_id_ativa():
+    return session.get("empresa_id")
+
+
+def filtro_empresa_sql(alias=""):
+    if usuario_e_admin():
+        return "1=1", []
+
+    empresa_id = empresa_id_ativa()
+    if empresa_id:
+        campo = f"{alias}.empresa_id" if alias else "empresa_id"
+        return f"({campo} = %s OR {campo} IS NULL)", [empresa_id]
+
+    return "1=1", []
+
+
+def exigir_permissao(*permitidos):
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    if usuario_e_admin():
+        return None
+
+    tipo = (session.get("tipo_usuario") or session.get("permissao") or "dono").lower()
+
+    hierarquia = {
+        "dono": 4,
+        "gerente": 3,
+        "funcionario": 2,
+        "visualizador": 1
+    }
+
+    if not permitidos:
+        return None
+
+    if tipo in permitidos:
+        return None
+
+    return jsonify({
+        "ok": False,
+        "mensagem": "Você não tem permissão para executar esta ação."
+    }), 403
+
+
+def registrar_auditoria_completa(acao, tabela="", registro_id="", detalhes=""):
+    try:
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO auditoria (usuario_id, empresa_id, usuario, acao, tabela, registro_id, detalhes, ip)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            usuario_id_logado(),
+            empresa_id_ativa(),
+            usuario_logado() or "desconhecido",
+            acao,
+            tabela or "",
+            str(registro_id or ""),
+            detalhes or "",
+            request.remote_addr or ""
+        ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception:
+        pass
+
+
+def criar_notificacao(usuario_id, titulo, mensagem, tipo="info", empresa_id=None):
+    try:
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO notificacoes (usuario_id, empresa_id, titulo, mensagem, tipo, lida)
+            VALUES (%s, %s, %s, %s, %s, FALSE)
+        """, (
+            usuario_id,
+            empresa_id,
+            titulo,
+            mensagem,
+            tipo
+        ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception:
+        pass
+
+
+def gerar_notificacoes_vencimento_usuario(usuario_id):
+    try:
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, data_vencimento, status
+            FROM usuarios
+            WHERE id = %s
+        """, (usuario_id,))
+
+        linha = cursor.fetchone()
+
+        if not linha:
+            cursor.close()
+            conn.close()
+            return
+
+        data_vencimento = linha[1]
+        status = (linha[2] or "ativo").lower()
+        data = data_para_date(data_vencimento)
+
+        if not data:
+            cursor.close()
+            conn.close()
+            return
+
+        dias = (data - hoje_data()).days
+
+        if 0 <= dias <= 5 and status == "ativo":
+            titulo = "Vencimento próximo"
+            mensagem = f"Seu plano vence em {dias} dia(s)."
+
+            cursor.execute("""
+                SELECT id
+                FROM notificacoes
+                WHERE usuario_id = %s
+                  AND titulo = %s
+                  AND mensagem = %s
+                  AND lida = FALSE
+                LIMIT 1
+            """, (usuario_id, titulo, mensagem))
+
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo, lida)
+                    VALUES (%s, %s, %s, %s, FALSE)
+                """, (usuario_id, titulo, mensagem, "aviso"))
+
+        if dias < 0:
+            titulo = "Plano vencido"
+            mensagem = "Seu plano venceu. Regularize para continuar usando o FinancePro."
+
+            cursor.execute("""
+                SELECT id
+                FROM notificacoes
+                WHERE usuario_id = %s
+                  AND titulo = %s
+                  AND lida = FALSE
+                LIMIT 1
+            """, (usuario_id, titulo))
+
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo, lida)
+                    VALUES (%s, %s, %s, %s, FALSE)
+                """, (usuario_id, titulo, mensagem, "erro"))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+    except Exception:
+        pass
+
+
 # ---------------- FRONT ----------------
 
 @app.route("/")
@@ -614,6 +787,8 @@ def login():
         session["usuario"] = ADMIN_USUARIO
         session["is_admin"] = True
         session["tipo_usuario"] = "admin"
+        session["permissao"] = "admin"
+        session["empresa_id"] = None
 
         try:
             registrar_log_admin("LOGIN_ADMIN", "", "Administrador entrou no sistema")
@@ -728,6 +903,8 @@ def login():
     session["usuario"] = usuario_banco
     session["is_admin"] = False
     session["tipo_usuario"] = tipo_usuario
+    session["permissao"] = tipo_usuario
+    session["empresa_id"] = None
 
     return jsonify({
         "ok": True,
@@ -1441,6 +1618,115 @@ def quitar_emprestimo(emprestimo_id):
         cursor.close()
         conn.close()
         return jsonify({"ok": True, "mensagem": "Empréstimo quitado com sucesso."})
+
+    except Exception as e:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        return jsonify({"ok": False, "mensagem": str(e)})
+
+
+
+@app.route("/api/emprestimos/<int:emprestimo_id>/pagar-valor", methods=["POST"])
+def pagar_valor_personalizado(emprestimo_id):
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    dados = request.get_json() or {}
+
+    try:
+        valor_pago = float(dados.get("valor_pago") or 0)
+    except Exception:
+        return jsonify({"ok": False, "mensagem": "Valor inválido."})
+
+    if valor_pago <= 0:
+        return jsonify({"ok": False, "mensagem": "Informe um valor maior que zero."})
+
+    where_e, params_e = filtro_usuario_sql("e")
+    params = [emprestimo_id] + params_e
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(f"""
+            SELECT e.total, e.status
+            FROM emprestimos e
+            WHERE e.id = %s AND {where_e}
+            FOR UPDATE
+        """, params)
+
+        linha = cursor.fetchone()
+
+        if not linha:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return jsonify({"ok": False, "mensagem": "Empréstimo não encontrado."})
+
+        total_atual = float(linha[0] or 0)
+        status = (linha[1] or "").strip().lower()
+
+        if status == "quitado":
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return jsonify({"ok": False, "mensagem": "Esse empréstimo já está quitado."})
+
+        if valor_pago > total_atual:
+            conn.rollback()
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "ok": False,
+                "mensagem": f"O valor recebido não pode ser maior que o saldo em aberto: {moeda(total_atual)}."
+            })
+
+        hoje = datetime.now().strftime("%d/%m/%Y")
+        novo_total = round(total_atual - valor_pago, 2)
+
+        cursor.execute("""
+            INSERT INTO pagamentos (usuario_id, emprestimo_id, valor_pago, tipo, data_pagamento)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (usuario_id_logado(), emprestimo_id, valor_pago, "parcial", hoje))
+
+        if novo_total <= 0:
+            cursor.execute("""
+                UPDATE emprestimos
+                SET total = 0,
+                    status = 'Quitado'
+                WHERE id = %s
+            """, (emprestimo_id,))
+            mensagem = "Pagamento recebido e empréstimo quitado com sucesso."
+        else:
+            cursor.execute("""
+                UPDATE emprestimos
+                SET total = %s,
+                    status = 'Aberto'
+                WHERE id = %s
+            """, (novo_total, emprestimo_id))
+            mensagem = f"Pagamento recebido com sucesso. Saldo restante: {moeda(novo_total)}."
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        try:
+            registrar_auditoria_completa(
+                "PAGAMENTO_PARCIAL",
+                "pagamentos",
+                emprestimo_id,
+                f"Valor recebido: {moeda(valor_pago)} | Saldo restante: {moeda(novo_total)}"
+            )
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": True,
+            "mensagem": mensagem,
+            "saldo_restante": novo_total
+        })
 
     except Exception as e:
         conn.rollback()
@@ -2783,6 +3069,599 @@ def admin_bloquear_usuario(usuario_id):
         pass
 
     return jsonify({"ok": True, "mensagem": "Usuário bloqueado com sucesso."})
+
+
+
+# ---------------- EMPRESAS / MULTIEMPRESA ----------------
+
+@app.route("/api/empresas", methods=["GET"])
+def listar_empresas():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    if usuario_e_admin():
+        return jsonify({"ok": True, "empresas": []})
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, nome, cnpj, telefone, endereco, logo_url, data_criacao
+        FROM empresas
+        WHERE usuario_id = %s
+        ORDER BY id ASC
+    """, (usuario_id_logado(),))
+
+    dados = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    empresas = [{
+        "id": item[0],
+        "nome": item[1],
+        "cnpj": item[2] or "",
+        "telefone": item[3] or "",
+        "endereco": item[4] or "",
+        "logo_url": item[5] or "",
+        "data_criacao": item[6] or ""
+    } for item in dados]
+
+    return jsonify({"ok": True, "empresas": empresas, "empresa_id_ativa": empresa_id_ativa()})
+
+
+@app.route("/api/empresas", methods=["POST"])
+def criar_empresa():
+    ver = exigir_permissao("dono", "gerente")
+    if ver:
+        return ver
+
+    if usuario_e_admin():
+        return jsonify({"ok": False, "mensagem": "Admin não cria empresa para si."})
+
+    dados = request.get_json() or {}
+
+    nome = (dados.get("nome") or "").strip()
+    cnpj = (dados.get("cnpj") or "").strip()
+    telefone = (dados.get("telefone") or "").strip()
+    endereco = (dados.get("endereco") or "").strip()
+    logo_url = (dados.get("logo_url") or "").strip()
+
+    if not nome:
+        return jsonify({"ok": False, "mensagem": "Nome da empresa é obrigatório."})
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO empresas (usuario_id, nome, cnpj, telefone, endereco, logo_url)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """, (
+        usuario_id_logado(),
+        nome,
+        cnpj,
+        telefone,
+        endereco,
+        logo_url
+    ))
+
+    empresa_id = cursor.fetchone()[0]
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET empresa_id = %s
+        WHERE id = %s
+    """, (empresa_id, usuario_id_logado()))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    session["empresa_id"] = empresa_id
+
+    registrar_auditoria_completa("EMPRESA_CRIADA", "empresas", empresa_id, f"Empresa: {nome}")
+
+    return jsonify({"ok": True, "mensagem": "Empresa criada com sucesso.", "empresa_id": empresa_id})
+
+
+@app.route("/api/empresas/<int:empresa_id>/ativar", methods=["POST"])
+def ativar_empresa(empresa_id):
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    if usuario_e_admin():
+        return jsonify({"ok": False, "mensagem": "Admin não seleciona empresa."})
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id
+        FROM empresas
+        WHERE id = %s AND usuario_id = %s
+    """, (empresa_id, usuario_id_logado()))
+
+    existe = cursor.fetchone()
+
+    if not existe:
+        cursor.close()
+        conn.close()
+        return jsonify({"ok": False, "mensagem": "Empresa não encontrada."})
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET empresa_id = %s
+        WHERE id = %s
+    """, (empresa_id, usuario_id_logado()))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    session["empresa_id"] = empresa_id
+
+    registrar_auditoria_completa("EMPRESA_ATIVA", "empresas", empresa_id, "Empresa selecionada")
+
+    return jsonify({"ok": True, "mensagem": "Empresa selecionada com sucesso."})
+
+
+# ---------------- NOTIFICAÇÕES INTERNAS ----------------
+
+@app.route("/api/notificacoes", methods=["GET"])
+def listar_notificacoes():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    if usuario_e_admin():
+        return jsonify({"ok": True, "notificacoes": [], "nao_lidas": 0})
+
+    gerar_notificacoes_vencimento_usuario(usuario_id_logado())
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, titulo, mensagem, tipo, lida, data_criacao
+        FROM notificacoes
+        WHERE usuario_id = %s
+        ORDER BY id DESC
+        LIMIT 50
+    """, (usuario_id_logado(),))
+
+    dados = cursor.fetchall()
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM notificacoes
+        WHERE usuario_id = %s AND lida = FALSE
+    """, (usuario_id_logado(),))
+
+    nao_lidas = cursor.fetchone()[0] or 0
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "ok": True,
+        "nao_lidas": nao_lidas,
+        "notificacoes": [{
+            "id": item[0],
+            "titulo": item[1],
+            "mensagem": item[2],
+            "tipo": item[3],
+            "lida": item[4],
+            "data_criacao": item[5]
+        } for item in dados]
+    })
+
+
+@app.route("/api/notificacoes/<int:notificacao_id>/lida", methods=["POST"])
+def marcar_notificacao_lida(notificacao_id):
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE notificacoes
+        SET lida = TRUE
+        WHERE id = %s AND usuario_id = %s
+    """, (notificacao_id, usuario_id_logado()))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+# ---------------- GRÁFICO DE BARRAS AVANÇADO ----------------
+
+@app.route("/api/grafico-barras-avancado", methods=["GET"])
+def grafico_barras_avancado():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    where_v, params_v = filtro_usuario_sql("v")
+    where_p, params_p = filtro_usuario_sql("p")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(f"""
+        SELECT TO_CHAR(TO_DATE(v.data_venda, 'DD/MM/YYYY'), 'MM/YYYY') AS mes,
+               COALESCE(SUM(v.valor_venda), 0) AS receita,
+               COALESCE(SUM(v.lucro), 0) AS lucro_vendas
+        FROM vendas v
+        WHERE {where_v}
+          AND v.data_venda ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND TO_DATE(v.data_venda, 'DD/MM/YYYY') >= CURRENT_DATE - INTERVAL '6 months'
+        GROUP BY mes
+        ORDER BY MIN(TO_DATE(v.data_venda, 'DD/MM/YYYY'))
+    """, params_v)
+
+    vendas = cursor.fetchall()
+
+    cursor.execute(f"""
+        SELECT TO_CHAR(TO_DATE(p.data_pagamento, 'DD/MM/YYYY'), 'MM/YYYY') AS mes,
+               COALESCE(SUM(p.valor_pago), 0) AS recebido,
+               {lucro_emprestimos_sql()} AS lucro_emprestimos
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE {where_p}
+          AND p.data_pagamento ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND TO_DATE(p.data_pagamento, 'DD/MM/YYYY') >= CURRENT_DATE - INTERVAL '6 months'
+        GROUP BY mes
+        ORDER BY MIN(TO_DATE(p.data_pagamento, 'DD/MM/YYYY'))
+    """, params_p)
+
+    pagamentos = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    mapa = {}
+
+    for mes, receita, lucro_vendas in vendas:
+        mapa.setdefault(mes, {"mes": mes, "receita": 0, "recebido": 0, "lucro": 0})
+        mapa[mes]["receita"] += float(receita or 0)
+        mapa[mes]["lucro"] += float(lucro_vendas or 0)
+
+    for mes, recebido, lucro_emprestimos in pagamentos:
+        mapa.setdefault(mes, {"mes": mes, "receita": 0, "recebido": 0, "lucro": 0})
+        mapa[mes]["recebido"] += float(recebido or 0)
+        mapa[mes]["lucro"] += float(lucro_emprestimos or 0)
+
+    return jsonify({"ok": True, "dados": list(mapa.values())})
+
+
+# ---------------- RELATÓRIO PDF PROFISSIONAL ----------------
+
+@app.route("/api/relatorio-profissional", methods=["GET"])
+def relatorio_profissional_pdf():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    if A4 is None:
+        return jsonify({
+            "ok": False,
+            "mensagem": "Instale reportlab: pip install reportlab"
+        })
+
+    resumo_resp = resumo()
+    resumo_dados = resumo_resp.get_json() if hasattr(resumo_resp, "get_json") else {}
+
+    where_c, params_c = filtro_usuario_sql("c")
+    where_e, params_e = filtro_usuario_sql("e")
+    where_v, params_v = filtro_usuario_sql("v")
+    where_p, params_p = filtro_usuario_sql("p")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    # ================= CLIENTES =================
+    cursor.execute(f"""
+        SELECT c.id, c.nome, c.telefone, c.cpf, c.endereco, c.data_contratacao, c.status
+        FROM clientes c
+        WHERE {where_c}
+        ORDER BY c.id DESC
+        LIMIT 80
+    """, params_c)
+    clientes = cursor.fetchall()
+
+    # ================= EMPRÉSTIMOS =================
+    cursor.execute(f"""
+        SELECT e.id, c.nome, e.valor, e.taxa, e.juros, e.total,
+               e.data_inicio, e.data_vencimento, e.status
+        FROM emprestimos e
+        LEFT JOIN clientes c ON c.id = e.cliente_id
+        WHERE {where_e}
+        ORDER BY e.id DESC
+        LIMIT 80
+    """, params_e)
+    emprestimos = cursor.fetchall()
+
+    # ================= VENDAS =================
+    cursor.execute(f"""
+        SELECT v.id, v.produto, v.cliente, v.valor_venda, v.valor_custo,
+               v.lucro, v.data_venda, v.observacao
+        FROM vendas v
+        WHERE {where_v}
+        ORDER BY v.id DESC
+        LIMIT 80
+    """, params_v)
+    vendas = cursor.fetchall()
+
+    # ================= PAGAMENTOS =================
+    cursor.execute(f"""
+        SELECT p.id, c.nome, p.valor_pago, p.tipo, p.data_pagamento, e.id
+        FROM pagamentos p
+        LEFT JOIN emprestimos e ON e.id = p.emprestimo_id
+        LEFT JOIN clientes c ON c.id = e.cliente_id
+        WHERE {where_p}
+        ORDER BY p.id DESC
+        LIMIT 80
+    """, params_p)
+    pagamentos = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    # ================= PDF =================
+    pasta = Path(tempfile.gettempdir())
+    arquivo = pasta / f"FinancePro_Relatorio_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
+    doc = SimpleDocTemplate(
+        str(arquivo),
+        pagesize=A4,
+        rightMargin=25,
+        leftMargin=25,
+        topMargin=25,
+        bottomMargin=25
+    )
+
+    styles = getSampleStyleSheet()
+    elementos = []
+
+    def titulo_secao(texto):
+        elementos.append(Spacer(1, 14))
+        elementos.append(Paragraph(f"<b>{texto}</b>", styles["Heading2"]))
+        elementos.append(Spacer(1, 6))
+
+    def aplicar_estilo_tabela(tabela, cor="#071933"):
+        tabela.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(cor)),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+            ("PADDING", (0, 0), (-1, -1), 5),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+        ]))
+        return tabela
+
+    # ================= TOPO =================
+    elementos.append(Paragraph("FinancePro - Relatório Financeiro Profissional", styles["Title"]))
+    elementos.append(Spacer(1, 14))
+    elementos.append(Paragraph(f"<b>Usuário:</b> {usuario_logado() or '-'}", styles["Normal"]))
+    elementos.append(Paragraph(f"<b>Gerado em:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]))
+    elementos.append(Paragraph("<b>Tipo:</b> Relatório completo e detalhado", styles["Normal"]))
+    elementos.append(Spacer(1, 12))
+
+    # ================= RESUMO =================
+    titulo_secao("1. RESUMO FINANCEIRO")
+
+    resumo_tabela = [
+        ["Indicador", "Valor"],
+        ["Total recebido", moeda(resumo_dados.get("total_recebido", 0))],
+        ["Capital emprestado aberto", moeda(resumo_dados.get("total_emprestado", 0))],
+        ["Total em aberto", moeda(resumo_dados.get("total_em_aberto", 0))],
+        ["Lucro empréstimos", moeda(resumo_dados.get("lucro_emprestimos", 0))],
+        ["Total vendido", moeda(resumo_dados.get("total_vendido", 0))],
+        ["Custo de vendas", moeda(resumo_dados.get("custo_vendas", 0))],
+        ["Lucro vendas", moeda(resumo_dados.get("lucro_vendas", 0))],
+        ["Lucro geral", moeda(resumo_dados.get("lucro_geral", 0))],
+        ["Lucro semanal", moeda(resumo_dados.get("lucro_semanal_geral", 0))],
+        ["Lucro mensal", moeda(resumo_dados.get("lucro_mensal_geral", 0))],
+        ["Clientes em atraso", str(resumo_dados.get("clientes_em_atraso", 0))],
+        ["Total de clientes", str(resumo_dados.get("total_clientes", 0))]
+    ]
+
+    elementos.append(aplicar_estilo_tabela(Table(resumo_tabela, colWidths=[260, 220])))
+
+    # ================= CLIENTES =================
+    titulo_secao("2. CLIENTES CADASTRADOS")
+
+    tabela_clientes = [["ID", "Nome", "Telefone", "CPF", "Status"]]
+    if clientes:
+        for c in clientes:
+            tabela_clientes.append([
+                str(c[0] or "-"),
+                str(c[1] or "-")[:28],
+                str(c[2] or "-")[:18],
+                str(c[3] or "-")[:16],
+                str(c[6] or "-")[:14],
+            ])
+    else:
+        tabela_clientes.append(["-", "Nenhum cliente cadastrado", "-", "-", "-"])
+
+    elementos.append(aplicar_estilo_tabela(
+        Table(tabela_clientes, colWidths=[35, 180, 100, 100, 80]),
+        "#0F172A"
+    ))
+
+    # ================= EMPRÉSTIMOS =================
+    titulo_secao("3. EMPRÉSTIMOS")
+
+    tabela_emprestimos = [["ID", "Cliente", "Valor", "Taxa", "Juros", "Total", "Vencimento", "Status"]]
+    if emprestimos:
+        for e in emprestimos:
+            tabela_emprestimos.append([
+                str(e[0] or "-"),
+                str(e[1] or "-")[:18],
+                moeda(e[2] or 0),
+                f"{float(e[3] or 0):.0f}%",
+                moeda(e[4] or 0),
+                moeda(e[5] or 0),
+                formatar_data_texto(e[7]),
+                str(e[8] or "-")[:10],
+            ])
+    else:
+        tabela_emprestimos.append(["-", "Nenhum empréstimo", "-", "-", "-", "-", "-", "-"])
+
+    elementos.append(aplicar_estilo_tabela(
+        Table(tabela_emprestimos, colWidths=[28, 95, 70, 40, 70, 70, 70, 65]),
+        "#111827"
+    ))
+
+    # ================= VENDAS =================
+    titulo_secao("4. VENDAS")
+
+    tabela_vendas = [["ID", "Produto", "Cliente", "Venda", "Custo", "Lucro", "Data"]]
+    if vendas:
+        for v in vendas:
+            tabela_vendas.append([
+                str(v[0] or "-"),
+                str(v[1] or "-")[:22],
+                str(v[2] or "-")[:18],
+                moeda(v[3] or 0),
+                moeda(v[4] or 0),
+                moeda(v[5] or 0),
+                formatar_data_texto(v[6]),
+            ])
+    else:
+        tabela_vendas.append(["-", "Nenhuma venda", "-", "-", "-", "-", "-"])
+
+    elementos.append(aplicar_estilo_tabela(
+        Table(tabela_vendas, colWidths=[30, 130, 105, 70, 70, 70, 65]),
+        "#0F172A"
+    ))
+
+    # ================= PAGAMENTOS =================
+    titulo_secao("5. PAGAMENTOS RECEBIDOS")
+
+    tabela_pagamentos = [["ID", "Cliente", "Empréstimo", "Valor", "Tipo", "Data"]]
+    if pagamentos:
+        for p in pagamentos:
+            tabela_pagamentos.append([
+                str(p[0] or "-"),
+                str(p[1] or "-")[:22],
+                str(p[5] or "-"),
+                moeda(p[2] or 0),
+                str(p[3] or "-")[:12],
+                formatar_data_texto(p[4]),
+            ])
+    else:
+        tabela_pagamentos.append(["-", "Nenhum pagamento", "-", "-", "-", "-"])
+
+    elementos.append(aplicar_estilo_tabela(
+        Table(tabela_pagamentos, colWidths=[35, 160, 70, 80, 80, 75]),
+        "#111827"
+    ))
+
+    # ================= ANÁLISE =================
+    titulo_secao("6. ANÁLISE DO RESULTADO")
+
+    lucro_geral = float(resumo_dados.get("lucro_geral", 0) or 0)
+    total_em_aberto = float(resumo_dados.get("total_em_aberto", 0) or 0)
+    clientes_atraso = int(resumo_dados.get("clientes_em_atraso", 0) or 0)
+
+    analise = []
+    if lucro_geral > 0:
+        analise.append("• Resultado geral positivo no período analisado.")
+    elif lucro_geral == 0:
+        analise.append("• Resultado geral zerado; acompanhe novas movimentações.")
+    else:
+        analise.append("• Resultado geral negativo; revisar custos e recebimentos.")
+
+    if total_em_aberto > 0:
+        analise.append(f"• Existe {moeda(total_em_aberto)} em aberto para acompanhamento.")
+
+    if clientes_atraso > 0:
+        analise.append(f"• Existem {clientes_atraso} cliente(s) em atraso. Recomendado acompanhamento de cobrança.")
+    else:
+        analise.append("• Não há clientes em atraso no momento.")
+
+    for linha in analise:
+        elementos.append(Paragraph(linha, styles["Normal"]))
+
+    elementos.append(Spacer(1, 25))
+    elementos.append(Paragraph("Relatório gerado automaticamente pelo FinancePro.", styles["Italic"]))
+
+    doc.build(elementos)
+
+    try:
+        registrar_auditoria_completa(
+            "RELATORIO_PDF_GERADO",
+            "relatorios",
+            "",
+            "Relatório profissional completo gerado"
+        )
+    except Exception:
+        pass
+
+    response = send_file(
+        str(arquivo),
+        mimetype="application/pdf",
+        as_attachment=False
+    )
+
+    response.headers["Content-Disposition"] = (
+        'inline; filename="FinancePro_Relatorio_Profissional.pdf"'
+    )
+    response.headers["Cache-Control"] = "no-cache"
+
+    return response
+
+
+
+
+# ---------------- AUDITORIA COMPLETA ----------------
+
+@app.route("/api/auditoria-completa", methods=["GET"])
+def auditoria_completa():
+    ver = exigir_admin()
+    if ver:
+        return ver
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, usuario_id, empresa_id, usuario, acao, tabela, registro_id, detalhes, data_hora, ip
+        FROM auditoria
+        ORDER BY id DESC
+        LIMIT 300
+    """)
+
+    dados = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({
+        "ok": True,
+        "auditoria": [{
+            "id": item[0],
+            "usuario_id": item[1],
+            "empresa_id": item[2],
+            "usuario": item[3],
+            "acao": item[4],
+            "tabela": item[5],
+            "registro_id": item[6],
+            "detalhes": item[7],
+            "data_hora": item[8],
+            "ip": item[9]
+        } for item in dados]
+    })
 
 
 if __name__ == "__main__":
