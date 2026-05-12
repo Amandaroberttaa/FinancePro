@@ -1,5 +1,55 @@
 
 let graficoPizza = null;
+
+
+function aplicarLogoClienteSistema(logoUrl, nomeCliente = "") {
+  const sidebarLogo = document.getElementById("sidebarLogoCliente");
+  const mobileLogo = document.getElementById("mobileLogoCliente");
+  const mobileBrand = document.getElementById("mobileClientBrand");
+  const mobileNome = document.getElementById("mobileClienteNome");
+  const logoPadrao = document.getElementById("financeProLogoPadrao");
+
+  if (logoUrl) {
+    if (sidebarLogo) {
+      sidebarLogo.src = logoUrl;
+      sidebarLogo.style.display = "block";
+    }
+
+    if (mobileLogo) {
+      mobileLogo.src = logoUrl;
+    }
+
+    if (mobileBrand) {
+      mobileBrand.style.display = "flex";
+    }
+
+    if (mobileNome) {
+      mobileNome.textContent = nomeCliente || "FinancePro";
+    }
+
+    if (logoPadrao) {
+      logoPadrao.style.display = "none";
+    }
+  } else {
+    if (sidebarLogo) {
+      sidebarLogo.src = "";
+      sidebarLogo.style.display = "none";
+    }
+
+    if (mobileLogo) {
+      mobileLogo.src = "";
+    }
+
+    if (mobileBrand) {
+      mobileBrand.style.display = "none";
+    }
+
+    if (logoPadrao) {
+      logoPadrao.style.display = "block";
+    }
+  }
+}
+
 let graficoFinanceiro = null;
 let deferredPromptPWA = null;
 
@@ -458,8 +508,59 @@ window.addEventListener("beforeinstallprompt", event => {
   if (btn) btn.style.display = "block";
 });
 
+
+function formatarDataBR(data) {
+  const d = String(data.getDate()).padStart(2, "0");
+  const m = String(data.getMonth() + 1).padStart(2, "0");
+  const a = data.getFullYear();
+  return `${d}/${m}/${a}`;
+}
+
+function definirPeriodoMesAtual() {
+  const hoje = new Date();
+  const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const ultimo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+
+  const inicio = document.getElementById("dashInicio");
+  const fim = document.getElementById("dashFim");
+
+  if (inicio) inicio.value = formatarDataBR(primeiro);
+  if (fim) fim.value = formatarDataBR(ultimo);
+}
+
+function parametrosDashboard() {
+  const inicio = document.getElementById("dashInicio")?.value || "";
+  const fim = document.getElementById("dashFim")?.value || "";
+
+  const params = new URLSearchParams();
+  if (inicio.trim()) params.append("inicio", inicio.trim());
+  if (fim.trim()) params.append("fim", fim.trim());
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+async function carregarMesAtual() {
+  definirPeriodoMesAtual();
+  await carregarDashboard();
+}
+
+
 async function carregarDashboard() {
-  const dados = await apiGet("/api/dashboard-completo");
+  const inicio = document.getElementById("dashInicio");
+  const fim = document.getElementById("dashFim");
+
+  if (inicio && fim && (!inicio.value || !fim.value)) {
+    definirPeriodoMesAtual();
+  }
+
+  const dados = await apiGet(`/api/dashboard-periodo${parametrosDashboard()}`);
+
+  if (!dados.ok) {
+    mostrarToast(dados.mensagem || "Erro ao carregar dashboard.", "erro");
+    return;
+  }
+
   renderizarResumo(dados.resumo || {});
   renderizarGraficoStatus(dados.grafico || []);
   await carregarGraficoFinanceiro();
@@ -1277,6 +1378,8 @@ async function carregarAssinatura() {
       preview.style.display = "none";
     }
 
+    aplicarLogoClienteSistema("", "FinancePro");
+
     return;
   }
 
@@ -1299,6 +1402,8 @@ async function carregarAssinatura() {
     preview.src = "";
     preview.style.display = "none";
   }
+
+  aplicarLogoClienteSistema(dados.logo_url || "", dados.usuario || "FinancePro");
 }
 
 async function copiarPixAssinatura() {
@@ -1334,6 +1439,8 @@ async function salvarMinhaConta() {
       preview.src = logo_url;
       preview.style.display = "block";
     }
+
+    aplicarLogoClienteSistema(logo_url || "", "FinancePro");
   }
 
   if (arquivo) {

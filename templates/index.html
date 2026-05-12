@@ -61,7 +61,8 @@
     <aside class="sidebar">
       <div>
         <div class="brand">
-          <img src="{{ url_for('static', filename='img/logo.png') }}" alt="FinancePro" class="brand-logo">
+          <img id="sidebarLogoCliente" src="" alt="Logo do cliente" class="cliente-sidebar-logo" style="display:none;">
+          <img id="financeProLogoPadrao" src="{{ url_for('static', filename='img/logo.png') }}" alt="FinancePro" class="brand-logo">
           <div>
             <h2>FinancePro</h2>
             <p>Controle financeiro</p>
@@ -104,19 +105,28 @@
     </aside>
 
     <main class="content">
+      <div id="mobileClientBrand" class="mobile-client-brand" style="display:none;">
+        <img id="mobileLogoCliente" src="" alt="Logo do cliente">
+        <div>
+          <strong id="mobileClienteNome">FinancePro</strong>
+          <span>Sistema financeiro</span>
+        </div>
+      </div>
 
       <section id="screen-dashboard" class="screen active">
         <header class="topbar">
           <div>
             <h1>Painel financeiro</h1>
           </div>
-          <div class="dashboard-actions">
-            <div class="date-filter-pill">
+          <div class="dashboard-actions dashboard-periodo-actions">
+            <div class="date-filter-pill dashboard-periodo-pill">
               <span class="date-icon">▣</span>
-              <span>01/06/2024 - 30/06/2024</span>
-              <span class="chevron">⌄</span>
+              <input type="text" id="dashInicio" placeholder="Início">
+              <span class="date-separator">até</span>
+              <input type="text" id="dashFim" placeholder="Fim">
             </div>
             <button type="button" class="refresh-btn" onclick="carregarDashboard()" title="Atualizar">↻</button>
+            <button type="button" class="refresh-btn month-btn" onclick="carregarMesAtual()" title="Mês atual">Mês atual</button>
           </div>
         </header>
 
@@ -630,6 +640,9 @@
             <p class="admin-panel-subtitle">Copie o código PIX e envie para o cliente pagar a mensalidade.</p>
             <textarea id="assinaturaPix" readonly placeholder="PIX copia e cola aparecerá aqui"></textarea>
             <button type="button" class="primary-btn" onclick="copiarPixAssinatura()">Copiar PIX</button>
+            <div class="pix-helper-box">
+              Dica: para melhor compatibilidade no celular, use chave PIX do tipo CPF, e-mail ou chave aleatória. Algumas contas podem recusar telefone no Pix Copia e Cola.
+            </div>
           </div>
 
           <div class="panel-card">

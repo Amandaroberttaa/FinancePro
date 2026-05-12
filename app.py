@@ -402,8 +402,15 @@ def crc16_ccitt(payload):
     return f"{resultado:04X}"
 
 
+
+def normalizar_chave_pix(chave):
+    chave = str(chave or "").strip()
+    # remove espaços comuns; mantém e-mail, CPF/CNPJ, chave aleatória
+    return chave.replace(" ", "").replace("\n", "").replace("\r", "")
+
+
 def gerar_pix_copia_cola(chave, nome, cidade, valor, descricao="FinancePro"):
-    chave = (chave or PIX_CHAVE_PADRAO or "").strip()
+    chave = normalizar_chave_pix(chave or PIX_CHAVE_PADRAO or "")
     nome = (nome or PIX_NOME_RECEBEDOR or "FINANCEPRO").strip()[:25]
     cidade = (cidade or PIX_CIDADE_RECEBEDOR or "RECIFE").strip()[:15]
     descricao = (descricao or "FinancePro").strip()[:60]
@@ -909,6 +916,134 @@ def dashboard_completo():
     resumo_dados = resumo().get_json()
     grafico_dados = dados_grafico_dashboard().get_json()
     return jsonify({"resumo": resumo_dados, "grafico": grafico_dados})
+
+
+
+# ---------------- DASHBOARD POR PERÍODO ----------------
+
+@app.route("/api/dashboard-periodo", methods=["GET"])
+def dashboard_periodo():
+    ver = exigir_acesso()
+    if ver:
+        return ver
+
+    inicio = (request.args.get("inicio") or "").strip()
+    fim = (request.args.get("fim") or "").strip()
+
+    if not inicio or not fim:
+        hoje = datetime.now()
+        primeiro = hoje.replace(day=1)
+        proximo_mes = (primeiro.replace(day=28) + timedelta(days=4)).replace(day=1)
+        ultimo = proximo_mes - timedelta(days=1)
+        inicio = primeiro.strftime("%d/%m/%Y")
+        fim = ultimo.strftime("%d/%m/%Y")
+
+    try:
+        normalizar_data(inicio)
+        normalizar_data(fim)
+    except Exception:
+        return jsonify({"ok": False, "mensagem": "Data inválida. Use dd/mm/aaaa."})
+
+    where_e, params_e = filtro_usuario_sql("e")
+    where_v, params_v = filtro_usuario_sql("v")
+    where_c, params_c = filtro_usuario_sql("c")
+    where_p, params_p = filtro_usuario_sql("p")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    # Em aberto continua mostrando a posição atual da carteira
+    cursor.execute(f"""
+        SELECT COALESCE(SUM(e.valor), 0), COALESCE(SUM(e.total), 0)
+        FROM emprestimos e
+        WHERE LOWER(TRIM(e.status)) = 'aberto'
+          AND {where_e}
+    """, params_e)
+    carteira = cursor.fetchone()
+    capital_emprestado_aberto = carteira[0] or 0
+    total_em_aberto = carteira[1] or 0
+
+    # Lucro de empréstimos no período
+    cursor.execute(f"""
+        SELECT {lucro_emprestimos_sql()}
+        FROM pagamentos p
+        JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE {where_p}
+          AND p.data_pagamento ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND TO_DATE(p.data_pagamento, 'DD/MM/YYYY') BETWEEN TO_DATE(%s, 'DD/MM/YYYY') AND TO_DATE(%s, 'DD/MM/YYYY')
+    """, params_p + [inicio, fim])
+    lucro_emprestimos = cursor.fetchone()[0] or 0
+
+    # Vendas no período
+    cursor.execute(f"""
+        SELECT COALESCE(SUM(v.valor_venda), 0), COALESCE(SUM(v.valor_custo), 0), COALESCE(SUM(v.lucro), 0)
+        FROM vendas v
+        WHERE {where_v}
+          AND v.data_venda ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND TO_DATE(v.data_venda, 'DD/MM/YYYY') BETWEEN TO_DATE(%s, 'DD/MM/YYYY') AND TO_DATE(%s, 'DD/MM/YYYY')
+    """, params_v + [inicio, fim])
+    venda_linha = cursor.fetchone()
+    total_vendido = venda_linha[0] or 0
+    custo_vendas = venda_linha[1] or 0
+    lucro_vendas = venda_linha[2] or 0
+
+    # Clientes em atraso atual
+    cursor.execute(f"""
+        SELECT COUNT(DISTINCT e.cliente_id)
+        FROM emprestimos e
+        WHERE LOWER(TRIM(e.status)) = 'aberto'
+          AND {where_e}
+          AND e.data_vencimento ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND TO_DATE(e.data_vencimento, 'DD/MM/YYYY') < CURRENT_DATE
+    """, params_e)
+    clientes_em_atraso = cursor.fetchone()[0] or 0
+
+    cursor.execute(f"SELECT COUNT(*) FROM clientes c WHERE {where_c}", params_c)
+    total_clientes = cursor.fetchone()[0] or 0
+
+    # Status gráfico atual
+    cursor.execute(f"SELECT COUNT(*) FROM emprestimos e WHERE LOWER(TRIM(e.status)) = 'quitado' AND {where_e}", params_e)
+    quitado = cursor.fetchone()[0] or 0
+
+    cursor.execute(f"""
+        SELECT COUNT(*)
+        FROM emprestimos e
+        WHERE LOWER(TRIM(e.status)) = 'aberto'
+          AND {where_e}
+          AND e.data_vencimento ~ '^\\d{{2}}/\\d{{2}}/\\d{{4}}$'
+          AND TO_DATE(e.data_vencimento, 'DD/MM/YYYY') < CURRENT_DATE
+    """, params_e)
+    atraso = cursor.fetchone()[0] or 0
+
+    cursor.execute(f"SELECT COUNT(*) FROM emprestimos e WHERE LOWER(TRIM(e.status)) = 'aberto' AND {where_e}", params_e)
+    aberto = cursor.fetchone()[0] or 0
+
+    cursor.close()
+    conn.close()
+
+    lucro_geral = float(lucro_emprestimos) + float(lucro_vendas)
+
+    return jsonify({
+        "ok": True,
+        "inicio": inicio,
+        "fim": fim,
+        "resumo": {
+            "total_emprestado": round(float(capital_emprestado_aberto), 2),
+            "total_em_aberto": round(float(total_em_aberto), 2),
+            "lucro_emprestimos": round(float(lucro_emprestimos), 2),
+            "clientes_em_atraso": clientes_em_atraso,
+            "total_vendido": round(float(total_vendido), 2),
+            "custo_vendas": round(float(custo_vendas), 2),
+            "lucro_vendas": round(float(lucro_vendas), 2),
+            "lucro_geral": round(lucro_geral, 2),
+            "total_clientes": total_clientes
+        },
+        "grafico": [
+            {"nome": "Em aberto", "valor": aberto},
+            {"nome": "Quitados", "valor": quitado},
+            {"nome": "Em atraso", "valor": atraso}
+        ]
+    })
 
 
 # ---------------- CLIENTES ----------------

@@ -939,3 +939,203 @@ td{
   flex-wrap:wrap;
   min-width:220px;
 }
+
+
+
+/* ===== LOGO DO CLIENTE RESPONSIVA + MOBILE ===== */
+
+.cliente-sidebar-logo{
+  width:48px;
+  height:48px;
+  object-fit:contain;
+  border-radius:12px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(148,163,184,.18);
+  padding:4px;
+  box-shadow:0 0 18px rgba(34,197,94,.12);
+}
+
+.mobile-client-brand{
+  width:100%;
+  margin-bottom:18px;
+  padding:14px;
+  border-radius:16px;
+  background:linear-gradient(135deg, rgba(7,25,48,.94), rgba(3,14,29,.94));
+  border:1px solid rgba(94,129,196,.25);
+  align-items:center;
+  gap:12px;
+}
+
+.mobile-client-brand img{
+  width:48px;
+  height:48px;
+  border-radius:12px;
+  object-fit:contain;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(148,163,184,.18);
+  padding:4px;
+}
+
+.mobile-client-brand strong{
+  display:block;
+  color:#fff;
+  font-size:16px;
+  font-weight:900;
+}
+
+.mobile-client-brand span{
+  display:block;
+  color:#9fb0c9;
+  font-size:12px;
+  margin-top:3px;
+}
+
+.pix-helper-box{
+  margin-top:12px;
+  padding:12px;
+  border-radius:12px;
+  background:rgba(59,130,246,.10);
+  border:1px solid rgba(59,130,246,.22);
+  color:#cfe0ff;
+  font-size:13px;
+  line-height:1.45;
+}
+
+@media (max-width:900px){
+  .layout{
+    min-height:100vh;
+  }
+
+  .sidebar{
+    width:100%;
+    min-height:auto;
+    position:relative;
+    padding:18px 14px;
+  }
+
+  .brand{
+    margin-bottom:18px;
+  }
+
+  .brand h2{
+    font-size:24px;
+  }
+
+  .nav{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap:10px;
+  }
+
+  .nav-item{
+    height:50px;
+    font-size:14px;
+    padding:0 12px;
+  }
+
+  .sidebar-footer{
+    margin-top:16px;
+  }
+
+  .content{
+    padding:18px 14px 24px;
+  }
+
+  .mobile-client-brand{
+    display:flex !important;
+  }
+
+  .topbar h1{
+    font-size:30px;
+  }
+
+  .hero-grid{
+    grid-template-columns:1fr;
+  }
+
+  .panel-grid{
+    grid-template-columns:1fr;
+  }
+
+  .date-filter-pill{
+    width:100%;
+    min-width:0;
+  }
+
+  .dashboard-actions{
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .refresh-btn{
+    width:100%;
+  }
+}
+
+@media (min-width:901px){
+  .mobile-client-brand{
+    display:none !important;
+  }
+}
+
+
+
+/* ===== DASHBOARD POR MÊS ATUAL / PERÍODO ===== */
+.dashboard-periodo-actions{
+  align-items:center;
+}
+
+.dashboard-periodo-pill{
+  min-width:360px;
+  gap:10px;
+}
+
+.dashboard-periodo-pill input{
+  width:105px;
+  height:38px;
+  margin:0;
+  padding:8px 10px;
+  border-radius:8px;
+  background:rgba(2,8,23,.45);
+  border:1px solid rgba(148,163,184,.16);
+  color:#fff;
+  font-size:13px;
+}
+
+.date-separator{
+  color:#9fb0c9;
+  font-size:12px;
+}
+
+.month-btn{
+  width:auto;
+  padding:0 16px;
+  font-size:13px;
+  white-space:nowrap;
+}
+
+@media (max-width:900px){
+  .dashboard-periodo-actions{
+    width:100%;
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  .dashboard-periodo-pill{
+    width:100%;
+    min-width:0;
+    height:auto;
+    padding:10px;
+    flex-wrap:wrap;
+  }
+
+  .dashboard-periodo-pill input{
+    flex:1;
+    min-width:120px;
+  }
+
+  .month-btn{
+    width:100%;
+    height:48px;
+  }
+}
