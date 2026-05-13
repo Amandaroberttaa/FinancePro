@@ -1565,6 +1565,7 @@ async function iniciarSistema() {
   configurarFormsAuth();
   configurarEnterCadastros();
   await verificarLoginInicial();
+  ajustarFooterMobile();
   setTimeout(() => carregarLogoClienteAoEntrar(), 600);
 }
 
@@ -2051,8 +2052,42 @@ async function carregarGraficoBarrasAvancadoLocal(canvasId, tipo = "dashboard") 
   if (tipo === "relatorios") graficoBarrasRelatorios = novoGrafico;
 }
 
-function baixarRelatorioProfissional() {
-  window.open("/api/relatorio-profissional", "_blank");
+async function baixarRelatorioProfissional() {
+  try {
+    mostrarToast("Gerando relatório PDF...", "sucesso");
+
+    const resposta = await fetch("/api/relatorio-profissional", {
+      method: "GET",
+      credentials: "same-origin"
+    });
+
+    if (!resposta.ok) {
+      mostrarToast("Erro ao gerar PDF.", "erro");
+      return;
+    }
+
+    const blob = await resposta.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "FinancePro_Relatorio_Profissional.pdf";
+    link.style.display = "none";
+
+    document.body.appendChild(link);
+    link.click();
+
+    setTimeout(() => {
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }, 1000);
+
+    mostrarToast("PDF baixado. Verifique seus downloads/arquivos.", "sucesso");
+
+  } catch (erro) {
+    console.error(erro);
+    mostrarToast("Erro ao baixar PDF.", "erro");
+  }
 }
 
 
@@ -2091,3 +2126,33 @@ document.addEventListener("click", (e) => {
     }, 400);
   }
 });
+
+
+
+// ---------------- MOBILE: MOVER STATUS/USUÁRIO/SAIR PARA O FINAL REAL DA PÁGINA ----------------
+
+function ajustarFooterMobile() {
+  const sidebar = document.querySelector(".sidebar");
+  const sidebarFooter = document.querySelector(".sidebar-footer");
+  const destinoMobile = document.getElementById("mobileSidebarFooterFinal");
+
+  if (!sidebar || !sidebarFooter || !destinoMobile) return;
+
+  const larguraMobile = window.innerWidth <= 900;
+
+  if (larguraMobile) {
+    if (!destinoMobile.contains(sidebarFooter)) {
+      destinoMobile.appendChild(sidebarFooter);
+    }
+    destinoMobile.style.display = "block";
+  } else {
+    if (!sidebar.contains(sidebarFooter)) {
+      sidebar.appendChild(sidebarFooter);
+    }
+    destinoMobile.style.display = "none";
+  }
+}
+
+window.addEventListener("load", ajustarFooterMobile);
+window.addEventListener("resize", ajustarFooterMobile);
+document.addEventListener("DOMContentLoaded", ajustarFooterMobile);

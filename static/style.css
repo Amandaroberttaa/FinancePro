@@ -1772,3 +1772,82 @@ input[type="number"]{
     grid-template-columns:1fr;
   }
 }
+
+
+
+/* ===== REMOVER CARD FINANCEPRO NO MOBILE ===== */
+.mobile-client-brand,
+#mobileClientBrand{
+  display:none !important;
+}
+
+
+/* ===== BOTÃO SAIR NO FINAL DO MENU MOBILE ===== */
+@media (max-width: 768px){
+
+  .sidebar{
+    display:flex;
+    flex-direction:column;
+  }
+
+  .sidebar-bottom,
+  .sidebar-footer,
+  .logout-area{
+    margin-top:auto !important;
+    padding-top:20px;
+  }
+
+  .btn-logout,
+  .logout-btn{
+    order:999 !important;
+  }
+}
+
+
+
+/* ===== FOOTER MOBILE NO FINAL REAL DA PÁGINA ===== */
+.mobile-sidebar-footer-final{
+  display:none;
+}
+
+@media (max-width:900px){
+  .layout{
+    display:flex !important;
+    flex-direction:column !important;
+  }
+
+  .sidebar{
+    min-height:auto !important;
+    height:auto !important;
+    display:block !important;
+  }
+
+  .sidebar-footer{
+    margin-top:0 !important;
+    padding:22px 14px 28px !important;
+    border-top:1px solid rgba(148,163,184,.16) !important;
+    width:100% !important;
+    background:linear-gradient(180deg, rgba(3,18,38,.98), rgba(2,11,25,.98));
+  }
+
+  .mobile-sidebar-footer-final{
+    display:block;
+    width:100%;
+    order:9999;
+    background:linear-gradient(180deg, rgba(3,18,38,.98), rgba(2,11,25,.98));
+  }
+
+  .mobile-sidebar-footer-final .sidebar-footer{
+    display:flex !important;
+    flex-direction:column !important;
+    gap:16px !important;
+  }
+
+  .mobile-sidebar-footer-final .mini-card,
+  .mobile-sidebar-footer-final .primary-btn,
+  .mobile-sidebar-footer-final .secondary-btn,
+  .mobile-sidebar-footer-final .btn-full,
+  .mobile-sidebar-footer-final button{
+    width:100% !important;
+  }
+}
