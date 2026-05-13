@@ -1218,3 +1218,557 @@ td{
 .action-btn.secondary{
   white-space:nowrap;
 }
+
+
+
+/* ===== MODAL FINANCEPRO - RECEBER VALOR ===== */
+.modal-financepro{
+  position:fixed;
+  inset:0;
+  z-index:99999;
+  background:rgba(2, 6, 23, .72);
+  backdrop-filter:blur(8px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+}
+
+.modal-financepro-card{
+  width:min(460px, 100%);
+  background:linear-gradient(135deg, #071933, #020817);
+  border:1px solid rgba(148,163,184,.25);
+  box-shadow:0 24px 80px rgba(0,0,0,.45);
+  border-radius:22px;
+  padding:24px;
+  color:#fff;
+  position:relative;
+}
+
+.modal-financepro-card h2{
+  font-size:26px;
+  margin:0 0 8px;
+  font-weight:900;
+}
+
+.modal-financepro-card p{
+  margin:0 0 18px;
+  color:#cbd5e1;
+  line-height:1.45;
+}
+
+.modal-financepro-card label{
+  display:block;
+  margin-bottom:8px;
+  color:#dbeafe;
+  font-weight:700;
+}
+
+.modal-financepro-card input{
+  width:100%;
+  height:50px;
+  border-radius:14px;
+  border:1px solid rgba(148,163,184,.25);
+  background:#08192f;
+  color:#fff;
+  padding:0 14px;
+  font-size:18px;
+  outline:none;
+}
+
+.modal-financepro-card input:focus{
+  border-color:#22c55e;
+  box-shadow:0 0 0 3px rgba(34,197,94,.15);
+}
+
+.modal-actions{
+  display:flex;
+  gap:12px;
+  margin-top:22px;
+  justify-content:flex-end;
+}
+
+.modal-actions .primary-btn,
+.modal-actions .secondary-btn{
+  width:auto;
+  min-width:130px;
+  height:46px;
+  border-radius:14px;
+}
+
+.secondary-btn{
+  background:#0b1b33;
+  color:#dbeafe;
+  border:1px solid rgba(148,163,184,.25);
+  font-weight:800;
+  cursor:pointer;
+}
+
+.secondary-btn:hover{
+  filter:brightness(1.12);
+}
+
+.modal-close{
+  position:absolute;
+  top:14px;
+  right:14px;
+  width:34px;
+  height:34px;
+  border-radius:10px;
+  border:1px solid rgba(148,163,184,.2);
+  background:rgba(15,23,42,.8);
+  color:#fff;
+  font-size:22px;
+  cursor:pointer;
+}
+
+@media (max-width:600px){
+  .modal-financepro{
+    align-items:flex-end;
+    padding:0;
+  }
+
+  .modal-financepro-card{
+    border-radius:24px 24px 0 0;
+    width:100%;
+    padding:24px 18px 28px;
+  }
+
+  .modal-actions{
+    flex-direction:column-reverse;
+  }
+
+  .modal-actions .primary-btn,
+  .modal-actions .secondary-btn{
+    width:100%;
+  }
+}
+
+
+
+/* ===== MARCA FINANCEPRO + LOGO DO CLIENTE ===== */
+.brand{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:12px;
+  margin-bottom:24px;
+}
+
+.financepro-brand-row{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  width:100%;
+}
+
+.financepro-brand-row .brand-logo{
+  width:38px;
+  height:38px;
+  object-fit:contain;
+  flex-shrink:0;
+}
+
+.financepro-brand-text h2{
+  margin:0;
+  line-height:1;
+  font-size:26px;
+  font-weight:900;
+  color:#fff;
+}
+
+.financepro-brand-text p{
+  margin:6px 0 0;
+  font-size:14px;
+  color:#9fb0c9;
+}
+
+.cliente-logo-sidebar{
+  width:100%;
+  display:none;
+  justify-content:flex-start;
+  align-items:center;
+  margin:4px 0 6px;
+}
+
+.cliente-logo-sidebar img{
+  display:block;
+  max-width:150px;
+  max-height:82px;
+  object-fit:contain;
+  border-radius:16px;
+  background:rgba(255,255,255,.06);
+  padding:8px;
+  border:1px solid rgba(148,163,184,.18);
+  box-shadow:0 8px 28px rgba(0,0,0,.22);
+}
+
+@media (max-width:900px){
+  .financepro-brand-row .brand-logo{
+    width:34px;
+    height:34px;
+  }
+
+  .financepro-brand-text h2{
+    font-size:22px;
+  }
+
+  .cliente-logo-sidebar img{
+    max-width:120px;
+    max-height:70px;
+  }
+}
+
+
+
+/* ===== EMPRÉSTIMOS EM CARDS DETALHADOS ===== */
+.painel-emprestimos-cards{
+  background:linear-gradient(135deg, rgba(7,25,48,.94), rgba(2,8,23,.96));
+}
+
+.emprestimos-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:18px;
+}
+
+.emprestimos-header h3{
+  margin:0;
+  font-size:22px;
+}
+
+.emprestimos-header p{
+  margin:6px 0 0;
+  color:#9fb0c9;
+}
+
+.emprestimos-card-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(330px, 1fr));
+  gap:18px;
+}
+
+.emprestimo-card-detalhado{
+  position:relative;
+  overflow:hidden;
+  border-radius:22px;
+  padding:20px;
+  background:
+    radial-gradient(circle at top left, rgba(239,68,68,.28), transparent 35%),
+    linear-gradient(135deg, rgba(48,18,34,.95), rgba(9,16,34,.98));
+  border:1px solid rgba(239,68,68,.28);
+  box-shadow:0 18px 50px rgba(0,0,0,.28);
+}
+
+.emprestimo-card-detalhado.aberto{
+  border-color:rgba(239,68,68,.35);
+}
+
+.emprestimo-card-detalhado.quitado{
+  background:
+    radial-gradient(circle at top left, rgba(34,197,94,.25), transparent 35%),
+    linear-gradient(135deg, rgba(6,44,34,.95), rgba(9,16,34,.98));
+  border-color:rgba(34,197,94,.35);
+}
+
+.emprestimo-card-top{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  margin-bottom:16px;
+}
+
+.cliente-avatar{
+  width:46px;
+  height:46px;
+  border-radius:50%;
+  background:linear-gradient(135deg,#16a34a,#0f766e);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:900;
+  color:#d1fae5;
+  border:1px solid rgba(255,255,255,.14);
+}
+
+.emprestimo-cliente-info h3{
+  margin:0;
+  color:#fff;
+  font-size:20px;
+  line-height:1.2;
+}
+
+.emprestimo-tags{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}
+
+.emprestimo-tags span{
+  font-size:11px;
+  font-weight:800;
+  padding:5px 9px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+}
+
+.tag-status{
+  background:rgba(239,68,68,.18);
+  color:#fecaca;
+}
+
+.tag-taxa{
+  background:rgba(245,158,11,.15);
+  color:#fde68a;
+}
+
+.emprestimo-total-box{
+  text-align:center;
+  padding:14px;
+  border-radius:18px;
+  background:rgba(15,23,42,.45);
+  border:1px solid rgba(255,255,255,.08);
+  margin-bottom:16px;
+}
+
+.emprestimo-total-box span{
+  display:block;
+  color:#cbd5e1;
+  font-size:13px;
+  margin-bottom:6px;
+}
+
+.emprestimo-total-box strong{
+  color:#22c55e;
+  font-size:32px;
+  font-weight:950;
+}
+
+.emprestimo-resumo-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+  margin-bottom:14px;
+}
+
+.emprestimo-resumo-grid div,
+.detalhe-pill{
+  padding:12px;
+  border-radius:14px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+}
+
+.emprestimo-resumo-grid span,
+.detalhe-pill span{
+  display:block;
+  color:#cbd5e1;
+  font-size:12px;
+  margin-bottom:5px;
+}
+
+.emprestimo-resumo-grid strong,
+.detalhe-pill strong{
+  color:#fff;
+  font-size:15px;
+}
+
+.emprestimo-resumo-grid div:nth-child(3) strong{
+  color:#86efac;
+}
+
+.emprestimo-resumo-grid div:nth-child(4) strong{
+  color:#60a5fa;
+}
+
+.emprestimo-progress{
+  margin:14px 0;
+  padding:12px;
+  border-radius:14px;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+}
+
+.progress-info{
+  display:flex;
+  justify-content:space-between;
+  color:#cbd5e1;
+  font-size:12px;
+  margin-bottom:8px;
+}
+
+.progress-info strong{
+  color:#fff;
+}
+
+.progress-bar{
+  width:100%;
+  height:9px;
+  border-radius:999px;
+  background:rgba(15,23,42,.9);
+  overflow:hidden;
+}
+
+.progress-bar div{
+  height:100%;
+  border-radius:999px;
+  background:linear-gradient(90deg,#22c55e,#3b82f6);
+}
+
+.emprestimo-detalhes-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;
+  margin:14px 0;
+}
+
+.detalhe-pill.destaque{
+  background:rgba(168,85,247,.18);
+  border-color:rgba(168,85,247,.30);
+}
+
+.emprestimo-actions{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:10px;
+  margin-top:16px;
+}
+
+.emprestimo-actions .action-btn{
+  width:100%;
+  min-height:42px;
+  border-radius:12px;
+}
+
+.action-btn.success{
+  background:#16a34a;
+  color:#fff;
+}
+
+.empty-state{
+  width:100%;
+  padding:20px;
+  border-radius:16px;
+  background:rgba(15,23,42,.55);
+  color:#cbd5e1;
+  text-align:center;
+}
+
+@media (max-width:700px){
+  .emprestimos-card-grid{
+    grid-template-columns:1fr;
+  }
+
+  .emprestimo-card-detalhado{
+    padding:16px;
+    border-radius:20px;
+  }
+
+  .emprestimo-total-box strong{
+    font-size:28px;
+  }
+
+  .emprestimo-detalhes-grid{
+    grid-template-columns:1fr;
+  }
+
+  .emprestimo-actions{
+    grid-template-columns:1fr;
+  }
+}
+
+
+
+/* ===== CORES DOS CARDS DE EMPRÉSTIMO POR STATUS ===== */
+.emprestimo-card-detalhado.aberto{
+  background:
+    radial-gradient(circle at top left, rgba(59,130,246,.20), transparent 35%),
+    linear-gradient(135deg, rgba(15,23,42,.98), rgba(14,20,44,.98));
+  border-color:rgba(59,130,246,.25);
+}
+
+.emprestimo-card-detalhado.atrasado{
+  background:
+    radial-gradient(circle at top left, rgba(239,68,68,.34), transparent 36%),
+    linear-gradient(135deg, rgba(63,18,32,.98), rgba(30,10,24,.98));
+  border-color:rgba(239,68,68,.55);
+}
+
+.emprestimo-card-detalhado.atrasado .tag-status{
+  background:rgba(239,68,68,.25);
+  color:#fecaca;
+  border-color:rgba(239,68,68,.35);
+}
+
+.emprestimo-card-detalhado.atrasado .emprestimo-total-box strong{
+  color:#fb7185;
+}
+
+.emprestimo-card-detalhado.aberto .tag-status{
+  background:rgba(34,197,94,.16);
+  color:#bbf7d0;
+  border-color:rgba(34,197,94,.25);
+}
+
+.emprestimo-card-detalhado.aberto .emprestimo-total-box strong{
+  color:#22c55e;
+}
+
+
+/* ===== CENTRALIZAR LOGO CLIENTE ===== */
+.cliente-logo-sidebar{
+  width:100% !important;
+  display:flex !important;
+  justify-content:center !important;
+  align-items:center !important;
+  margin:12px auto 18px auto !important;
+}
+
+.cliente-logo-sidebar img{
+  margin:0 auto !important;
+}
+
+
+
+/* ===== CLIENTES EM COLUNA / LISTA EMBAIXO ===== */
+.clientes-layout-vertical{
+  display:flex;
+  flex-direction:column;
+  gap:24px;
+  width:100%;
+}
+
+.clientes-form-card,
+.lista-clientes-box{
+  width:100%;
+}
+
+.clientes-lista-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+  gap:18px;
+}
+
+.cliente-card{
+  width:100%;
+}
+
+/* ===== REMOVER SETINHAS DOS INPUTS NUMBER ===== */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button{
+  -webkit-appearance:none;
+  margin:0;
+}
+
+input[type="number"]{
+  -moz-appearance:textfield;
+  appearance:textfield;
+}
+
+@media (max-width:768px){
+  .clientes-lista-grid{
+    grid-template-columns:1fr;
+  }
+}

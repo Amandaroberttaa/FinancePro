@@ -675,22 +675,37 @@ def home():
 @app.route("/api/sessao", methods=["GET"])
 def obter_sessao():
     plano_info = {}
+
     if usuario_logado() and not usuario_e_admin() and usuario_id_logado():
         try:
-            conn = conectar(); cursor = conn.cursor()
-            cursor.execute("SELECT plano, status, data_vencimento, valor_mensal FROM usuarios WHERE id = %s", (usuario_id_logado(),))
+            conn = conectar()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT plano, status, data_vencimento, valor_mensal, logo_url, whatsapp
+                FROM usuarios
+                WHERE id = %s
+            """, (usuario_id_logado(),))
+
             linha = cursor.fetchone()
-            cursor.close(); conn.close()
+
+            cursor.close()
+            conn.close()
+
             if linha:
                 plano_info = {
                     "plano": linha[0] or "Básico",
                     "status": linha[1] or "ativo",
                     "data_vencimento": linha[2] or "",
                     "valor_mensal": float(linha[3] or 0),
+                    "logo_url": linha[4] or "",
+                    "whatsapp": linha[5] or "",
                     "dias_restantes": dias_restantes_plano(linha[2])
                 }
+
         except Exception:
             plano_info = {}
+
     return jsonify({
         "logado": bool(usuario_logado()),
         "usuario": usuario_logado() or "",
@@ -698,6 +713,7 @@ def obter_sessao():
         "is_admin": usuario_e_admin(),
         **plano_info
     })
+
 
 
 @app.route("/api/verificar-tem-usuario", methods=["GET"])
@@ -3608,18 +3624,12 @@ def relatorio_profissional_pdf():
     except Exception:
         pass
 
-    response = send_file(
+    return send_file(
         str(arquivo),
         mimetype="application/pdf",
-        as_attachment=False
+        as_attachment=True,
+        download_name="FinancePro_Relatorio_Profissional.pdf"
     )
-
-    response.headers["Content-Disposition"] = (
-        'inline; filename="FinancePro_Relatorio_Profissional.pdf"'
-    )
-    response.headers["Cache-Control"] = "no-cache"
-
-    return response
 
 
 

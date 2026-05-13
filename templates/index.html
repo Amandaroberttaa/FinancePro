@@ -61,11 +61,16 @@
     <aside class="sidebar">
       <div>
         <div class="brand">
-          <img id="sidebarLogoCliente" src="" alt="Logo do cliente" class="cliente-sidebar-logo" style="display:none;">
-          <img id="financeProLogoPadrao" src="{{ url_for('static', filename='img/logo.png') }}" alt="FinancePro" class="brand-logo">
-          <div>
-            <h2>FinancePro</h2>
-            <p>Controle financeiro</p>
+          <div class="financepro-brand-row">
+            <img id="financeProLogoPadrao" src="{{ url_for('static', filename='img/logo.png') }}" alt="FinancePro" class="brand-logo">
+            <div class="financepro-brand-text">
+              <h2>FinancePro</h2>
+              <p>Controle financeiro</p>
+            </div>
+          </div>
+
+          <div id="clienteLogoSidebarBox" class="cliente-logo-sidebar" style="display:none;">
+            <img id="clienteLogoSidebarImg" src="" alt="Logo do cliente">
           </div>
         </div>
 
@@ -198,6 +203,7 @@
         </section>
       </section>
 
+      
       <section id="screen-clientes" class="screen">
         <header class="topbar">
           <div>
@@ -205,37 +211,31 @@
           </div>
         </header>
 
-        <div class="panel-grid">
-          <div class="panel-card">
+        <div class="clientes-layout-vertical">
+
+          <div class="panel-card clientes-form-card">
             <h3>Novo cliente</h3>
-            <input type="text" id="novoNome" placeholder="Nome">
-            <input type="text" id="novoTelefone" placeholder="Telefone">
-            <input type="text" id="novoCpf" placeholder="CPF">
-            <input type="text" id="novoEndereco" placeholder="Endereço">
-            <input type="text" id="novaDataContratacao" placeholder="Data contratação (dd/mm/aaaa)">
+
+            <input type="text" id="clienteNome" placeholder="Nome">
+            <input type="text" id="clienteTelefone" placeholder="Telefone">
+            <input type="text" id="clienteCpf" placeholder="CPF">
+            <input type="text" id="clienteEndereco" placeholder="Endereço">
+            <input type="text" id="clienteData" placeholder="Data contratação (dd/mm/aaaa)">
+
             <button type="button" class="primary-btn" onclick="adicionarCliente()">Cadastrar cliente</button>
           </div>
 
-          <div class="panel-card">
+          <div class="panel-card lista-clientes-box">
             <h3>Lista de clientes</h3>
-            <div id="listaClientes"></div>
+            <div id="listaClientes" class="clientes-lista-grid">
+              Nenhum cliente cadastrado.
+            </div>
           </div>
-        </div>
 
-        <div class="panel-card" id="painelEditarCliente" style="display:none; margin-top:20px;">
-          <h3>Editar cliente</h3>
-          <input type="hidden" id="editarClienteId">
-          <input type="text" id="editarNome" placeholder="Nome">
-          <input type="text" id="editarTelefone" placeholder="Telefone">
-          <input type="text" id="editarCpf" placeholder="CPF">
-          <input type="text" id="editarEndereco" placeholder="Endereço">
-          <input type="text" id="editarDataContratacao" placeholder="Data contratação (dd/mm/aaaa)">
-          <input type="text" id="editarStatus" placeholder="Status">
-          <button type="button" class="primary-btn" onclick="salvarEdicaoCliente()">Salvar edição</button>
         </div>
       </section>
 
-      <section id="screen-emprestimos" class="screen">
+<section id="screen-emprestimos" class="screen">
         <header class="topbar">
           <div>
             <h1>Empréstimos em aberto</h1>
@@ -256,30 +256,16 @@
           <button type="button" class="primary-btn" onclick="adicionarEmprestimo()">Criar empréstimo</button>
         </div>
 
-        <div class="panel-card" style="margin-top:20px;">
-          <h3>Lista de empréstimos abertos</h3>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Cliente</th>
-                  <th>Valor</th>
-                  <th>Taxa</th>
-                  <th>Juros</th>
-                  <th>Total</th>
-                  <th>Início</th>
-                  <th>Vencimento</th>
-                  <th>Status</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody id="tabelaEmprestimos">
-                <tr>
-                  <td colspan="10">Nenhum empréstimo cadastrado.</td>
-                </tr>
-              </tbody>
-            </table>
+        <div class="panel-card painel-emprestimos-cards" style="margin-top:20px;">
+          <div class="emprestimos-header">
+            <div>
+              <h3>Lista de empréstimos abertos</h3>
+              <p>Visualização detalhada por cliente</p>
+            </div>
+          </div>
+
+          <div id="tabelaEmprestimos" class="emprestimos-card-grid">
+            <div class="empty-state">Nenhum empréstimo cadastrado.</div>
           </div>
         </div>
       </section>
@@ -771,5 +757,26 @@
       });
     }
   </script>
+
+  <div id="modalReceberValor" class="modal-financepro" style="display:none;">
+    <div class="modal-financepro-card">
+      <button type="button" class="modal-close" onclick="fecharModalReceberValor()">×</button>
+
+      <h2>Receber valor</h2>
+      <p id="modalReceberValorTexto">Digite o valor recebido.</p>
+
+      <input type="hidden" id="modalReceberEmprestimoId">
+      <input type="hidden" id="modalReceberSaldoAtual">
+
+      <label>Valor recebido</label>
+      <input type="number" id="modalReceberValorInput" placeholder="Ex: 100,00" step="0.01" min="0">
+
+      <div class="modal-actions">
+        <button type="button" class="secondary-btn" onclick="fecharModalReceberValor()">Cancelar</button>
+        <button type="button" class="primary-btn" onclick="confirmarModalReceberValor()">Confirmar recebimento</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

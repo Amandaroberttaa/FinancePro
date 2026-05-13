@@ -1,54 +1,100 @@
 
+async function carregarLogoClienteAoEntrar() {
+  try {
+    const sessao = await apiGet("/api/sessao");
+
+    if (!sessao || !sessao.logado || sessao.is_admin) {
+      aplicarLogoClienteSistema("", "FinancePro");
+      return;
+    }
+
+    // Primeiro tenta pela sessão
+    if (sessao.logo_url) {
+      aplicarLogoClienteSistema(sessao.logo_url || "", sessao.usuario || "FinancePro");
+      return;
+    }
+
+    // Fallback definitivo: usa a mesma rota da aba Assinatura, que já carregava a logo corretamente
+    const assinatura = await apiGet("/api/minha-assinatura");
+
+    if (assinatura && assinatura.ok && assinatura.logo_url) {
+      aplicarLogoClienteSistema(assinatura.logo_url || "", assinatura.usuario || sessao.usuario || "FinancePro");
+      return;
+    }
+
+    aplicarLogoClienteSistema("", "FinancePro");
+
+  } catch (erro) {
+    console.error("Erro ao carregar logo do cliente:", erro);
+  }
+}
+
+
+
+function aplicarLogoClienteSistema(logoUrl = "", nome = "FinancePro") {
+  const box = document.getElementById("clienteLogoSidebarBox");
+  const img = document.getElementById("clienteLogoSidebarImg");
+
+  if (!box || !img) return;
+
+  const logo = String(logoUrl || "").trim();
+
+  if (!logo) {
+    img.removeAttribute("src");
+    box.style.display = "none";
+    return;
+  }
+
+  img.onload = () => {
+    box.style.display = "flex";
+  };
+
+  img.onerror = () => {
+    img.removeAttribute("src");
+    box.style.display = "none";
+  };
+
+  img.alt = nome || "Logo do cliente";
+  img.src = logo;
+}
+
+async function atualizarLogoSessao() {
+  try {
+    const sessao = await apiGet("/api/sessao");
+
+    if (!sessao || !sessao.logado || sessao.is_admin) {
+      aplicarLogoClienteSistema("", "FinancePro");
+      return;
+    }
+
+    let logo = sessao.logo_url || "";
+    let nome = sessao.usuario || "FinancePro";
+
+    // Fallback: a aba Assinatura já carregava a logo corretamente,
+    // então buscamos a mesma fonte logo na entrada do cliente.
+    if (!logo) {
+      try {
+        const assinatura = await apiGet("/api/minha-assinatura");
+        if (assinatura && assinatura.ok) {
+          logo = assinatura.logo_url || "";
+          nome = assinatura.usuario || nome;
+        }
+      } catch (e) {}
+    }
+
+    aplicarLogoClienteSistema(logo, nome);
+
+  } catch (erro) {
+    console.error("Erro ao carregar logo da sessão:", erro);
+  }
+}
+
+
+
 let graficoPizza = null;
 
 
-function aplicarLogoClienteSistema(logoUrl, nomeCliente = "") {
-  const sidebarLogo = document.getElementById("sidebarLogoCliente");
-  const mobileLogo = document.getElementById("mobileLogoCliente");
-  const mobileBrand = document.getElementById("mobileClientBrand");
-  const mobileNome = document.getElementById("mobileClienteNome");
-  const logoPadrao = document.getElementById("financeProLogoPadrao");
 
-  if (logoUrl) {
-    if (sidebarLogo) {
-      sidebarLogo.src = logoUrl;
-      sidebarLogo.style.display = "block";
-    }
-
-    if (mobileLogo) {
-      mobileLogo.src = logoUrl;
-    }
-
-    if (mobileBrand) {
-      mobileBrand.style.display = "flex";
-    }
-
-    if (mobileNome) {
-      mobileNome.textContent = nomeCliente || "FinancePro";
-    }
-
-    if (logoPadrao) {
-      logoPadrao.style.display = "none";
-    }
-  } else {
-    if (sidebarLogo) {
-      sidebarLogo.src = "";
-      sidebarLogo.style.display = "none";
-    }
-
-    if (mobileLogo) {
-      mobileLogo.src = "";
-    }
-
-    if (mobileBrand) {
-      mobileBrand.style.display = "none";
-    }
-
-    if (logoPadrao) {
-      logoPadrao.style.display = "block";
-    }
-  }
-}
 
 let graficoFinanceiro = null;
 let deferredPromptPWA = null;
@@ -240,11 +286,20 @@ async function verificarLoginInicial() {
 
     atualizarInfoSessao(sessao.usuario || "", !!sessao.is_admin);
     atualizarInfoPlano(sessao);
+    await carregarLogoClienteAoEntrar();
+
+    if (!sessao.is_admin) {
+      aplicarLogoClienteSistema(sessao.logo_url || "", sessao.usuario || "FinancePro");
+    } else {
+      aplicarLogoClienteSistema("", "FinancePro");
+    }
+
     await carregarDashboard();
     return;
   }
 
   limparInfoSessao();
+  aplicarLogoClienteSistema("", "FinancePro");
   atualizarInfoPlano(null);
   if (telaInicial) telaInicial.style.display = "flex";
   if (telaLogin) telaLogin.style.display = "none";
@@ -277,8 +332,10 @@ async function criarUsuarioInicial() {
 
   atualizarInfoSessao(resp.usuario || usuario, !!resp.is_admin);
   atualizarInfoPlano(resp);
+  aplicarLogoClienteSistema(resp.logo_url || "", resp.usuario || usuario || "FinancePro");
   mostrarToast("Conta criada com sucesso.", "sucesso");
   await carregarDashboard();
+  setTimeout(() => carregarLogoClienteAoEntrar(), 1200);
 }
 
 async function fazerLogin() {
@@ -306,6 +363,15 @@ async function fazerLogin() {
 
   atualizarInfoSessao(resposta.usuario || "", !!resposta.is_admin);
   atualizarInfoPlano(resposta);
+  aplicarLogoClienteSistema(resposta.logo_url || "", resposta.usuario || "FinancePro");
+  setTimeout(() => carregarLogoClienteAoEntrar(), 300);
+
+  if (!resposta.is_admin) {
+    aplicarLogoClienteSistema(resposta.logo_url || "", resposta.usuario || "FinancePro");
+  } else {
+    aplicarLogoClienteSistema("", "FinancePro");
+  }
+
   mostrarToast("Login realizado com sucesso.", "sucesso");
   await carregarDashboard();
 }
@@ -317,6 +383,7 @@ async function sairSistema() {
   document.getElementById("screen-inicial").style.display = "flex";
   document.getElementById("screen-login").style.display = "none";
   limparInfoSessao();
+  aplicarLogoClienteSistema("", "FinancePro");
   mostrarToast("Você saiu do sistema.", "info");
 }
 
@@ -676,40 +743,136 @@ function baixarPdfCliente(clienteId) {
   window.open(`/api/gerar-pdf-cliente/${clienteId}`, "_blank");
 }
 
+
+function parseDataBRParaDate(valor) {
+  const partes = String(valor || "").split("/");
+  if (partes.length !== 3) return null;
+
+  const dia = Number(partes[0]);
+  const mes = Number(partes[1]) - 1;
+  const ano = Number(partes[2]);
+
+  if (!dia || mes < 0 || !ano) return null;
+
+  return new Date(ano, mes, dia);
+}
+
+function emprestimoEstaAtrasado(vencimento, status) {
+  const statusTxt = String(status || "").toLowerCase();
+  if (statusTxt === "quitado") return false;
+
+  const data = parseDataBRParaDate(vencimento);
+  if (!data) return false;
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  data.setHours(0, 0, 0, 0);
+
+  return data < hoje;
+}
+
+
 async function carregarEmprestimos() {
   const emprestimos = await apiGet("/api/emprestimos");
-  const tabela = document.getElementById("tabelaEmprestimos");
-  if (!tabela) return;
+  const area = document.getElementById("tabelaEmprestimos");
+  if (!area) return;
 
-  tabela.innerHTML = "";
+  area.innerHTML = "";
 
   if (!emprestimos.length) {
-    tabela.innerHTML = `<tr><td colspan="10">Nenhum empréstimo aberto.</td></tr>`;
+    area.innerHTML = `<div class="empty-state">Nenhum empréstimo aberto.</div>`;
     return;
   }
 
   emprestimos.forEach(item => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${item.id}</td>
-      <td>${escaparHtml(item.cliente)}</td>
-      <td>${formatarMoeda(item.valor)}</td>
-      <td>${item.taxa}%</td>
-      <td>${formatarMoeda(item.juros)}</td>
-      <td>${formatarMoeda(item.total)}</td>
-      <td>${item.data_contratacao || "-"}</td>
-      <td>${item.vencimento || "-"}</td>
-      <td><span class="status-tag ${classeStatus(item.status)}">${item.status}</span></td>
-      <td>
-        <button class="action-btn" onclick="confirmarQuitado(${item.id})">Quitar</button>
-        <button class="action-btn secondary" onclick="confirmarReceberValor(${item.id}, ${item.total})">Receber valor</button>
+    const valor = Number(item.valor || 0);
+    const juros = Number(item.juros || 0);
+    const total = Number(item.total || 0);
+    const taxa = Number(item.taxa || 0);
+    const pago = Math.max((valor + juros) - total, 0);
+    const percentualPago = (valor + juros) > 0 ? Math.min((pago / (valor + juros)) * 100, 100) : 0;
+    const parcelaJuros = juros;
+    const diasInfo = item.vencimento ? item.vencimento : "-";
+    const atrasado = emprestimoEstaAtrasado(item.vencimento, item.status);
+    const statusClasse = atrasado
+      ? "atrasado"
+      : (String(item.status || "").toLowerCase() === "aberto" ? "aberto" : "quitado");
+
+    const card = document.createElement("div");
+    card.className = `emprestimo-card-detalhado ${statusClasse}`;
+
+    card.innerHTML = `
+      <div class="emprestimo-card-top">
+        <div class="cliente-avatar">${escaparHtml(String(item.cliente || "?").substring(0, 2).toUpperCase())}</div>
+        <div class="emprestimo-cliente-info">
+          <h3>${escaparHtml(item.cliente || "Cliente")}</h3>
+          <div class="emprestimo-tags">
+            <span class="tag-status">${atrasado ? "Atrasado" : escaparHtml(item.status || "Aberto")}</span>
+            <span class="tag-taxa">${taxa}% ao mês</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="emprestimo-total-box">
+        <span>Restante a receber</span>
+        <strong>${formatarMoeda(total)}</strong>
+      </div>
+
+      <div class="emprestimo-resumo-grid">
+        <div>
+          <span>Emprestado</span>
+          <strong>${formatarMoeda(valor)}</strong>
+        </div>
+        <div>
+          <span>Total a receber</span>
+          <strong>${formatarMoeda(valor + juros)}</strong>
+        </div>
+        <div>
+          <span>Lucro previsto</span>
+          <strong>${formatarMoeda(juros)}</strong>
+        </div>
+        <div>
+          <span>Pago</span>
+          <strong>${formatarMoeda(pago)}</strong>
+        </div>
+      </div>
+
+      <div class="emprestimo-progress">
+        <div class="progress-info">
+          <span>Progresso do recebimento</span>
+          <strong>${percentualPago.toFixed(0)}%</strong>
+        </div>
+        <div class="progress-bar">
+          <div style="width:${percentualPago}%"></div>
+        </div>
+      </div>
+
+      <div class="emprestimo-detalhes-grid">
+        <div class="detalhe-pill">
+          <span>Início</span>
+          <strong>${escaparHtml(item.data_contratacao || "-")}</strong>
+        </div>
+        <div class="detalhe-pill">
+          <span>Vencimento</span>
+          <strong>${escaparHtml(diasInfo)}</strong>
+        </div>
+        <div class="detalhe-pill destaque">
+          <span>Só juros</span>
+          <strong>${formatarMoeda(parcelaJuros)}</strong>
+        </div>
+      </div>
+
+      <div class="emprestimo-actions">
+        <button class="action-btn success" onclick="confirmarReceberValor(${item.id}, ${total})">Receber</button>
         <button class="action-btn secondary" onclick="confirmarJuros(${item.id})">Pagar juros</button>
-        <button class="action-btn warning" onclick="alterarTaxaEmprestimo(${item.id}, ${item.taxa})">
-          ${Number(item.taxa) === 20 ? "Trocar p/ 30%" : "Trocar p/ 20%"}
+        <button class="action-btn" onclick="confirmarQuitado(${item.id})">Quitar</button>
+        <button class="action-btn warning" onclick="alterarTaxaEmprestimo(${item.id}, ${taxa})">
+          ${taxa === 20 ? "Trocar p/ 30%" : "Trocar p/ 20%"}
         </button>
-      </td>
+      </div>
     `;
-    tabela.appendChild(tr);
+
+    area.appendChild(card);
   });
 }
 
@@ -773,30 +936,57 @@ async function confirmarJuros(id) {
 
 
 async function confirmarReceberValor(id, saldoAtual) {
-  const valorDigitado = prompt(`Digite o valor recebido. Saldo atual: ${formatarMoeda(saldoAtual)}`);
+  const modal = document.getElementById("modalReceberValor");
+  const campoId = document.getElementById("modalReceberEmprestimoId");
+  const campoSaldo = document.getElementById("modalReceberSaldoAtual");
+  const campoValor = document.getElementById("modalReceberValorInput");
+  const texto = document.getElementById("modalReceberValorTexto");
 
-  if (valorDigitado === null) return;
+  if (!modal || !campoId || !campoSaldo || !campoValor) {
+    mostrarToast("Modal de pagamento não encontrado.", "erro");
+    return;
+  }
 
-  const valorLimpo = String(valorDigitado)
-    .replace("R$", "")
-    .replace(/\./g, "")
-    .replace(",", ".")
-    .trim();
+  campoId.value = id;
+  campoSaldo.value = Number(saldoAtual || 0);
+  campoValor.value = "";
 
-  const valor = Number(valorLimpo);
+  if (texto) {
+    texto.innerText = `Digite o valor recebido. Saldo atual: ${formatarMoeda(saldoAtual)}`;
+  }
+
+  modal.style.display = "flex";
+
+  setTimeout(() => {
+    campoValor.focus();
+  }, 100);
+}
+
+function fecharModalReceberValor() {
+  const modal = document.getElementById("modalReceberValor");
+  if (modal) modal.style.display = "none";
+}
+
+async function confirmarModalReceberValor() {
+  const id = document.getElementById("modalReceberEmprestimoId")?.value || "";
+  const saldoAtual = Number(document.getElementById("modalReceberSaldoAtual")?.value || 0);
+  const campoValor = document.getElementById("modalReceberValorInput");
+  const valor = Number(campoValor?.value || 0);
+
+  if (!id) {
+    mostrarToast("Empréstimo não identificado.", "erro");
+    return;
+  }
 
   if (!valor || valor <= 0) {
     mostrarToast("Informe um valor recebido válido.", "erro");
     return;
   }
 
-  if (valor > Number(saldoAtual || 0)) {
+  if (valor > saldoAtual) {
     mostrarToast("O valor recebido não pode ser maior que o saldo em aberto.", "erro");
     return;
   }
-
-  const confirmar = confirm(`Confirmar recebimento de ${formatarMoeda(valor)}?`);
-  if (!confirmar) return;
 
   const resposta = await apiPost(`/api/emprestimos/${id}/pagar-valor`, {
     valor_pago: valor
@@ -807,6 +997,8 @@ async function confirmarReceberValor(id, saldoAtual) {
     return;
   }
 
+  fecharModalReceberValor();
+
   mostrarToast(resposta.mensagem || "Valor recebido com sucesso.", "sucesso");
 
   await carregarEmprestimos();
@@ -814,6 +1006,7 @@ async function confirmarReceberValor(id, saldoAtual) {
   await carregarRelatorios();
   await carregarHistoricos();
 }
+
 
 
 async function alterarTaxaEmprestimo(id, taxaAtual) {
@@ -1372,6 +1565,7 @@ async function iniciarSistema() {
   configurarFormsAuth();
   configurarEnterCadastros();
   await verificarLoginInicial();
+  setTimeout(() => carregarLogoClienteAoEntrar(), 600);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -1860,3 +2054,40 @@ async function carregarGraficoBarrasAvancadoLocal(canvasId, tipo = "dashboard") 
 function baixarRelatorioProfissional() {
   window.open("/api/relatorio-profissional", "_blank");
 }
+
+
+
+document.addEventListener("keydown", event => {
+  const modal = document.getElementById("modalReceberValor");
+
+  if (!modal || modal.style.display === "none") return;
+
+  if (event.key === "Escape") {
+    fecharModalReceberValor();
+  }
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    confirmarModalReceberValor();
+  }
+});
+
+
+window.addEventListener("load", () => {
+  setTimeout(() => {
+    carregarLogoClienteAoEntrar();
+  }, 800);
+
+  setTimeout(() => {
+    carregarLogoClienteAoEntrar();
+  }, 2000);
+});
+
+document.addEventListener("click", (e) => {
+  const nav = e.target.closest(".nav-item");
+  if(nav){
+    setTimeout(() => {
+      carregarLogoClienteAoEntrar();
+    }, 400);
+  }
+});
